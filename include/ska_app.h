@@ -1,0 +1,810 @@
+// sk_app - Lightweight cross-platform application framework
+//
+// Provides window management, input handling, and Vulkan surface creation
+// for Win32, Linux, macOS, and Android platforms.
+//
+// License: MIT
+
+#ifndef SKA_APP_H
+#define SKA_APP_H
+
+#include <stdint.h>
+#include <stdbool.h>
+#include <stddef.h>  // For size_t
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+// Platform detection (only define if not already defined by build system)
+#if !defined(SKA_PLATFORM_WIN32) && !defined(SKA_PLATFORM_LINUX) && \
+	!defined(SKA_PLATFORM_MACOS) && !defined(SKA_PLATFORM_ANDROID)
+	#if defined(_WIN32)
+		#define SKA_PLATFORM_WIN32
+	#elif defined(__ANDROID__)
+		#define SKA_PLATFORM_ANDROID
+	#elif defined(__linux__)
+		#define SKA_PLATFORM_LINUX
+	#elif defined(__APPLE__)
+		#include <TargetConditionals.h>
+		#if TARGET_OS_MAC
+			#define SKA_PLATFORM_MACOS
+		#endif
+	#endif
+#endif
+
+// API export/import
+#if defined(SKA_PLATFORM_WIN32)
+	#ifdef SKA_BUILD_SHARED
+		#ifdef SKA_EXPORT
+			#define SKA_API __declspec(dllexport)
+		#else
+			#define SKA_API __declspec(dllimport)
+		#endif
+	#else
+		#define SKA_API
+	#endif
+#else
+	#define SKA_API __attribute__((visibility("default")))
+#endif
+
+// Version
+#define SKA_VERSION_MAJOR 1
+#define SKA_VERSION_MINOR 0
+#define SKA_VERSION_PATCH 0
+
+// Forward declarations
+typedef struct ska_window_t ska_window_t;
+typedef        uint32_t     ska_window_id_t;
+
+// ============================================================================
+// Initialization
+// ============================================================================
+
+// Initialize the sk_app library.
+// Initializes platform-specific subsystems (X11/Win32/etc), event queue, and input state.
+// Can be called multiple times safely (returns error if already initialized).
+// On Android, preserves the android_app pointer set by ska_android_set_app().
+//
+// @return true on success, false on failure (check ska_error_get())
+SKA_API bool ska_init(void);
+
+// Shutdown the sk_app library.
+// Automatically destroys any remaining windows, then cleans up platform resources.
+// Safe to call even if not initialized (no-op).
+SKA_API void ska_shutdown(void);
+
+// Get the last error message.
+// Returned pointer is valid until the next error occurs or ska_shutdown() is called.
+// Thread-local storage is not used, so not thread-safe in multi-threaded contexts.
+//
+// @return Error message string (UTF-8), or NULL if no error occurred
+SKA_API const char* ska_error_get(void);
+
+// ============================================================================
+// Window Management
+// ============================================================================
+
+// Window flags
+typedef enum ska_window_ {
+	ska_window_resizable      = 0x00000001,
+	ska_window_borderless     = 0x00000002,
+	ska_window_maximized      = 0x00000004,
+	ska_window_minimized      = 0x00000008,
+	ska_window_hidden         = 0x00000010,
+	ska_window_fullscreen     = 0x00000020,
+	ska_window_highdpi        = 0x00000040,
+	ska_window_always_on_top  = 0x00000080,
+} ska_window_;
+
+// Window position constants
+#define SKA_WINDOWPOS_UNDEFINED ((int32_t)0x1FFF0000)
+#define SKA_WINDOWPOS_CENTERED  ((int32_t)0x2FFF0000)
+
+// Rectangle structure
+typedef struct ska_rect_t {
+	int32_t x;
+	int32_t y;
+	int32_t w;
+	int32_t h;
+} ska_rect_t;
+
+// Create a new window.
+// Window is initially visible unless ska_window_hidden flag is set.
+// Defaults to "sk_app window" if title is NULL, 640x480 if dimensions <= 0.
+// SKA_WINDOWPOS_UNDEFINED maps to (100,100), SKA_WINDOWPOS_CENTERED is platform-centered.
+// Maximum of SKA_MAX_WINDOWS (16) can be created simultaneously.
+//
+// @param title Window title (UTF-8), copied internally
+// @param x X position in screen coordinates (or SKA_WINDOWPOS_UNDEFINED/SKA_WINDOWPOS_CENTERED)
+// @param y Y position in screen coordinates (or SKA_WINDOWPOS_UNDEFINED/SKA_WINDOWPOS_CENTERED)
+// @param width Window width in screen coordinates (not pixels on high-DPI)
+// @param height Window height in screen coordinates (not pixels on high-DPI)
+// @param flags Bitwise OR of ska_window_ flags
+// @return Window handle, or NULL on failure (check ska_error_get())
+SKA_API ska_window_t* ska_window_create(
+	const char* title,
+	int32_t x, int32_t y,
+	int32_t width, int32_t height,
+	uint32_t flags
+);
+
+// Destroy a window.
+// Frees platform resources (HWND/Window/etc) and internal memory.
+// Safe to pass NULL (no-op). Window handle becomes invalid after this call.
+//
+// @param ref_window Window to destroy
+SKA_API void ska_window_destroy(ska_window_t* ref_window);
+
+// Get window ID (for event handling).
+// IDs are stable for the lifetime of the window and used in event structures.
+// Returns 0 if window is NULL.
+//
+// @param window Window handle
+// @return Unique window ID (never reused during program lifetime)
+SKA_API ska_window_id_t ska_window_get_id(const ska_window_t* window);
+
+// Get window from ID.
+// Performs linear search through active windows (max 16), so O(n) complexity.
+//
+// @param id Window ID from an event
+// @return Window handle, or NULL if window was destroyed or ID is invalid
+SKA_API ska_window_t* ska_window_from_id(ska_window_id_t id);
+
+// Set window title.
+// Title string is copied internally. Safe to pass NULL for either parameter (no-op).
+//
+// @param ref_window Window handle
+// @param title New title (UTF-8)
+SKA_API void ska_window_set_title(ska_window_t* ref_window, const char* title);
+
+// Get window title.
+// Returns pointer to internally stored title string.
+//
+// @param window Window handle
+// @return Window title (UTF-8), valid until ska_window_set_title() or ska_window_destroy()
+SKA_API const char* ska_window_get_title(const ska_window_t* window);
+
+// Set window position.
+// Position is in screen coordinates relative to the display origin.
+// May not take effect immediately on some platforms (window managers can override).
+//
+// @param ref_window Window handle
+// @param x New X position in screen coordinates
+// @param y New Y position in screen coordinates
+SKA_API void ska_window_set_position(ska_window_t* ref_window, int32_t x, int32_t y);
+
+// Get window position.
+// Returns cached position from last ConfigureNotify/move event.
+// Both output parameters can be NULL if you only care about one axis.
+//
+// @param window Window handle
+// @param opt_out_x Output X position in screen coordinates (can be NULL)
+// @param opt_out_y Output Y position in screen coordinates (can be NULL)
+SKA_API void ska_window_get_position(const ska_window_t* window, int32_t* opt_out_x, int32_t* opt_out_y);
+
+// Set window size.
+// Triggers ska_event_window_resized when size actually changes.
+// Resizable flag must be set, otherwise this may be ignored by window manager.
+//
+// @param ref_window Window handle
+// @param width New width in screen coordinates (not pixels on high-DPI)
+// @param height New height in screen coordinates (not pixels on high-DPI)
+SKA_API void ska_window_set_size(ska_window_t* ref_window, int32_t width, int32_t height);
+
+// Get window size in screen coordinates.
+// Returns cached size from last ConfigureNotify/resize event.
+// This is the logical size, not the physical pixel size.
+//
+// @param window Window handle
+// @param opt_out_width Output width in screen coordinates (can be NULL)
+// @param opt_out_height Output height in screen coordinates (can be NULL)
+SKA_API void ska_window_get_size(const ska_window_t* window, int32_t* opt_out_width, int32_t* opt_out_height);
+
+// Get window drawable size in pixels (may differ from screen size on high-DPI).
+// Use this for framebuffer/viewport sizing in rendering code.
+// On standard DPI displays, this equals ska_window_get_size().
+// On high-DPI displays (Retina, etc), this is typically 2x the window size.
+//
+// @param ref_window Window handle
+// @param opt_out_width Output width in pixels (can be NULL)
+// @param opt_out_height Output height in pixels (can be NULL)
+SKA_API void ska_window_get_drawable_size(ska_window_t* ref_window, int32_t* opt_out_width, int32_t* opt_out_height);
+
+// Show window.
+// Maps the window to the display. Generates ska_event_window_shown.
+//
+// @param ref_window Window handle
+SKA_API void ska_window_show(ska_window_t* ref_window);
+
+// Hide window.
+// Unmaps the window from display. Generates ska_event_window_hidden.
+//
+// @param ref_window Window handle
+SKA_API void ska_window_hide(ska_window_t* ref_window);
+
+// Maximize window.
+// Requests window manager to maximize window (fills screen but keeps taskbar/decorations).
+// May not be honored on all platforms or by all window managers.
+//
+// @param ref_window Window handle
+SKA_API void ska_window_maximize(ska_window_t* ref_window);
+
+// Minimize window.
+// Iconifies window to taskbar/dock. Generates ska_event_window_minimized.
+//
+// @param ref_window Window handle
+SKA_API void ska_window_minimize(ska_window_t* ref_window);
+
+// Restore window from maximized/minimized state.
+// Returns window to normal size and visibility. Generates ska_event_window_restored.
+//
+// @param ref_window Window handle
+SKA_API void ska_window_restore(ska_window_t* ref_window);
+
+// Raise window above other windows.
+// Brings window to front and gives it input focus.
+// On X11, also calls XSetInputFocus() to ensure keyboard events are received.
+//
+// @param ref_window Window handle
+SKA_API void ska_window_raise(ska_window_t* ref_window);
+
+// Get window flags.
+// Returns the flags passed to ska_window_create().
+// Note: flags are not updated when window state changes (e.g., user maximizes window).
+//
+// @param window Window handle
+// @return Creation flags (ska_window_), or 0 if window is NULL
+SKA_API uint32_t ska_window_get_flags(const ska_window_t* window);
+
+// ============================================================================
+// Event System
+// ============================================================================
+
+// Event types
+typedef enum ska_event_ {
+	ska_event_none = 0,
+
+	// Application events
+	ska_event_quit,
+	ska_event_app_lowmemory,
+	ska_event_app_background,
+	ska_event_app_foreground,
+
+	// Window events
+	ska_event_window_shown,
+	ska_event_window_hidden,
+	ska_event_window_moved,
+	ska_event_window_resized,
+	ska_event_window_minimized,
+	ska_event_window_maximized,
+	ska_event_window_restored,
+	ska_event_window_mouse_enter,
+	ska_event_window_mouse_leave,
+	ska_event_window_focus_gained,
+	ska_event_window_focus_lost,
+	ska_event_window_close,
+
+	// Keyboard events
+	ska_event_key_down,
+	ska_event_key_up,
+	ska_event_text_input,
+
+	// Mouse events
+	ska_event_mouse_motion,
+	ska_event_mouse_button_down,
+	ska_event_mouse_button_up,
+	ska_event_mouse_wheel,
+} ska_event_;
+
+// Keyboard scancodes (physical keys)
+typedef enum ska_scancode_ {
+	ska_scancode_unknown = 0,
+
+	// Letters
+	ska_scancode_a = 4,
+	ska_scancode_b, ska_scancode_c, ska_scancode_d, ska_scancode_e,
+	ska_scancode_f, ska_scancode_g, ska_scancode_h, ska_scancode_i,
+	ska_scancode_j, ska_scancode_k, ska_scancode_l, ska_scancode_m,
+	ska_scancode_n, ska_scancode_o, ska_scancode_p, ska_scancode_q,
+	ska_scancode_r, ska_scancode_s, ska_scancode_t, ska_scancode_u,
+	ska_scancode_v, ska_scancode_w, ska_scancode_x, ska_scancode_y,
+	ska_scancode_z,
+
+	// Numbers
+	ska_scancode_1, ska_scancode_2, ska_scancode_3, ska_scancode_4,
+	ska_scancode_5, ska_scancode_6, ska_scancode_7, ska_scancode_8,
+	ska_scancode_9, ska_scancode_0,
+
+	// Function keys
+	ska_scancode_return,
+	ska_scancode_escape,
+	ska_scancode_backspace,
+	ska_scancode_tab,
+	ska_scancode_space,
+
+	// Symbols
+	ska_scancode_minus,
+	ska_scancode_equals,
+	ska_scancode_leftbracket,
+	ska_scancode_rightbracket,
+	ska_scancode_backslash,
+	ska_scancode_semicolon,
+	ska_scancode_apostrophe,
+	ska_scancode_grave,
+	ska_scancode_comma,
+	ska_scancode_period,
+	ska_scancode_slash,
+
+	ska_scancode_capslock,
+
+	ska_scancode_f1, ska_scancode_f2, ska_scancode_f3, ska_scancode_f4,
+	ska_scancode_f5, ska_scancode_f6, ska_scancode_f7, ska_scancode_f8,
+	ska_scancode_f9, ska_scancode_f10, ska_scancode_f11, ska_scancode_f12,
+
+	ska_scancode_printscreen,
+	ska_scancode_scrolllock,
+	ska_scancode_pause,
+	ska_scancode_insert,
+
+	// Navigation
+	ska_scancode_home,
+	ska_scancode_pageup,
+	ska_scancode_delete,
+	ska_scancode_end,
+	ska_scancode_pagedown,
+	ska_scancode_right,
+	ska_scancode_left,
+	ska_scancode_down,
+	ska_scancode_up,
+
+	// Modifiers
+	ska_scancode_lctrl = 224,
+	ska_scancode_lshift,
+	ska_scancode_lalt,
+	ska_scancode_lgui,
+	ska_scancode_rctrl,
+	ska_scancode_rshift,
+	ska_scancode_ralt,
+	ska_scancode_rgui,
+
+	ska_scancode_count = 512
+} ska_scancode_;
+
+// Key modifiers
+typedef enum ska_keymod_ {
+	ska_keymod_none   = 0x0000,
+	ska_keymod_lshift = 0x0001,
+	ska_keymod_rshift = 0x0002,
+	ska_keymod_shift  = 0x0003,
+	ska_keymod_lctrl  = 0x0040,
+	ska_keymod_rctrl  = 0x0080,
+	ska_keymod_ctrl   = 0x00C0,
+	ska_keymod_lalt   = 0x0100,
+	ska_keymod_ralt   = 0x0200,
+	ska_keymod_alt    = 0x0300,
+	ska_keymod_lgui   = 0x0400,
+	ska_keymod_rgui   = 0x0800,
+	ska_keymod_gui    = 0x0C00,
+} ska_keymod_;
+
+// Mouse buttons
+typedef enum ska_mouse_button_ {
+	ska_mouse_button_left   = 1,
+	ska_mouse_button_middle = 2,
+	ska_mouse_button_right  = 3,
+	ska_mouse_button_x1     = 4,
+	ska_mouse_button_x2     = 5,
+} ska_mouse_button_;
+
+// Event structures
+typedef struct ska_event_window_t {
+	ska_window_id_t   window_id;
+	int32_t           data1;
+	int32_t           data2;
+} ska_event_window_t;
+
+typedef struct ska_event_keyboard_t {
+	ska_window_id_t   window_id;
+	bool              pressed;
+	bool              repeat;
+	ska_scancode_     scancode;
+	uint16_t          modifiers;
+} ska_event_keyboard_t;
+
+typedef struct ska_event_text_t {
+	ska_window_id_t   window_id;
+	char              text[32];  // UTF-8 text
+} ska_event_text_t;
+
+typedef struct ska_event_mouse_motion_t {
+	ska_window_id_t   window_id;
+	int32_t           x;
+	int32_t           y;
+	int32_t           xrel;
+	int32_t           yrel;
+} ska_event_mouse_motion_t;
+
+typedef struct ska_event_mouse_button_t {
+	ska_window_id_t   window_id;
+	ska_mouse_button_ button;
+	bool              pressed;
+	uint8_t           clicks;
+	int32_t           x;
+	int32_t           y;
+} ska_event_mouse_button_t;
+
+typedef struct ska_event_mouse_wheel_t {
+	ska_window_id_t   window_id;
+	int32_t           x;
+	int32_t           y;
+	float             precise_x;
+	float             precise_y;
+} ska_event_mouse_wheel_t;
+
+// Main event structure
+typedef struct ska_event_t {
+	ska_event_ type;
+	uint32_t   timestamp;
+	union {
+		ska_event_window_t       window;
+		ska_event_keyboard_t     keyboard;
+		ska_event_text_t         text;
+		ska_event_mouse_motion_t mouse_motion;
+		ska_event_mouse_button_t mouse_button;
+		ska_event_mouse_wheel_t  mouse_wheel;
+	};
+} ska_event_t;
+
+// Poll for events.
+// Pumps platform events first, then dequeues from internal ring buffer (256 events max).
+// Text input events are automatically pushed to the text queue for ska_text_consume().
+// Non-blocking: returns immediately if queue is empty.
+//
+// @param out_event Pointer to event structure to fill (required, not NULL)
+// @return true if event was retrieved, false if no events available
+SKA_API bool ska_event_poll(ska_event_t* out_event);
+
+// Wait for an event (blocks until event is available).
+// Equivalent to ska_event_wait_timeout(out_event, -1).
+// Polls with 1ms sleep intervals, so CPU-friendly but not perfectly responsive.
+//
+// @param out_event Pointer to event structure to fill (required, not NULL)
+// @return true if event was retrieved, false on error
+SKA_API bool ska_event_wait(ska_event_t* out_event);
+
+// Wait for an event with timeout.
+// Busy-waits with ska_event_poll() + ska_time_sleep(1ms) until event or timeout.
+// timeout_ms=0 is equivalent to ska_event_poll(), timeout_ms=-1 waits forever.
+//
+// @param out_event Pointer to event structure to fill (required, not NULL)
+// @param timeout_ms Timeout in milliseconds (0 = poll only, -1 = wait forever)
+// @return true if event was retrieved, false if timeout expired or error
+SKA_API bool ska_event_wait_timeout(ska_event_t* out_event, int32_t timeout_ms);
+
+// ============================================================================
+// Input State Query
+// ============================================================================
+
+// Get keyboard state snapshot.
+// Returns pointer to internal array indexed by ska_scancode_ values.
+// Array size is ska_scancode_count (512), populated by key events during ska_event_poll().
+// Pointer is valid for program lifetime (points to global state), not just until next poll.
+//
+// @param opt_out_num_keys If not NULL, receives ska_scancode_count (512)
+// @return Array of key states (1 = pressed, 0 = released), never NULL
+SKA_API const uint8_t* ska_keyboard_get_state(int32_t* opt_out_num_keys);
+
+// Get current keyboard modifiers.
+// Bitmask updated by key events, includes both left/right variants and combined flags.
+//
+// @return Current modifier flags (ska_keymod_), bitwise OR of active modifiers
+SKA_API uint16_t ska_keyboard_get_modifiers(void);
+
+// Get mouse position relative to window.
+// Position updated by mouse motion events during ska_event_poll().
+//
+// @param opt_out_x Output X position in window coordinates (can be NULL)
+// @param opt_out_y Output Y position in window coordinates (can be NULL)
+// @return Button state bitmask: bit N set if button (N+1) is pressed (e.g., bit 0 = left button)
+SKA_API uint32_t ska_mouse_get_state(int32_t* opt_out_x, int32_t* opt_out_y);
+
+// Get global mouse position (desktop coordinates).
+// Currently not implemented: returns same as ska_mouse_get_state() (window-relative position).
+// Reserved for future platform-specific implementation (would query OS directly).
+//
+// @param opt_out_x Output X position in desktop coordinates (can be NULL)
+// @param opt_out_y Output Y position in desktop coordinates (can be NULL)
+// @return Button state bitmask
+SKA_API uint32_t ska_mouse_get_global_state(int32_t* opt_out_x, int32_t* opt_out_y);
+
+// Set mouse position relative to window.
+// On X11, sets a flag to ignore the next motion event (to avoid feedback loops).
+//
+// @param ref_window Window handle (required, not NULL)
+// @param x New X position in window coordinates
+// @param y New Y position in window coordinates
+SKA_API void ska_mouse_warp(ska_window_t* ref_window, int32_t x, int32_t y);
+
+// Show or hide mouse cursor.
+// On X11, creates invisible cursor from 1x1 transparent pixmap when hiding.
+// Affects all windows created by this library.
+//
+// @param show true to show cursor, false to hide
+SKA_API void ska_cursor_show(bool show);
+
+// Enable or disable relative mouse mode (for FPS games, etc).
+// In relative mode, cursor is hidden and motion is not clamped to window bounds.
+// On X11, this only hides the cursor (true relative mode not fully implemented).
+//
+// @param enabled true to enable, false to disable
+// @return true on success, false on failure
+SKA_API bool ska_mouse_set_relative_mode(bool enabled);
+
+// Get relative mouse mode state.
+// Returns the state set by ska_mouse_set_relative_mode().
+//
+// @return true if relative mode is enabled, false otherwise
+SKA_API bool ska_mouse_get_relative_mode(void);
+
+// ============================================================================
+// Vulkan Support
+// ============================================================================
+
+// Get required Vulkan instance extensions for the platform.
+// Returns platform-specific extensions (e.g., VK_KHR_surface + VK_KHR_xlib_surface on X11).
+//
+// @param out_count Output number of extensions (required, not NULL)
+// @return Array of extension name strings (static lifetime), or NULL on error
+SKA_API const char** ska_vk_get_instance_extensions(uint32_t* out_count);
+
+// Create Vulkan surface for a window.
+// Dynamically loads vkCreateXlibSurfaceKHR (or platform equivalent) via vkGetInstanceProcAddr.
+// Requires instance created with extensions from ska_vk_get_instance_extensions().
+//
+// @param window Window handle (required, not NULL)
+// @param instance Vulkan instance handle (VkInstance cast to void*)
+// @param out_surface Output Vulkan surface (VkSurfaceKHR* cast to void*), written on success
+// @return true on success, false on failure (check ska_error_get())
+SKA_API bool ska_vk_create_surface(
+	const ska_window_t* window,
+	void* instance,
+	void* out_surface
+);
+
+// ============================================================================
+// Platform-Specific Window Handles
+// ============================================================================
+
+// Get platform-specific window handle.
+// Returns the underlying OS window handle for interop with other libraries.
+// Cast to appropriate type based on platform.
+//
+// Win32: HWND (cast from void*)
+// Linux X11: Window (cast to unsigned long via uintptr_t)
+// Linux Wayland: wl_surface* (not implemented)
+// macOS: NSWindow* (id type)
+// Android: ANativeWindow*
+//
+// @param window Window handle
+// @return Platform-specific handle, or NULL if window is NULL
+SKA_API void* ska_window_get_native_handle(const ska_window_t* window);
+
+#ifdef SKA_PLATFORM_WIN32
+// Get Win32 HINSTANCE.
+// Returns the module handle used for window class registration.
+//
+// @return HINSTANCE handle (cast to void*)
+SKA_API void* ska_win32_get_hinstance(void);
+#endif
+
+#ifdef SKA_PLATFORM_LINUX
+// Get X11 Display pointer (if using X11).
+// Returns the display connection shared by all windows.
+//
+// @return Display* (cast to void*), or NULL if using Wayland (not implemented)
+SKA_API void* ska_linux_get_x11_display(void);
+
+// Get Wayland display pointer (if using Wayland).
+// Not implemented: Wayland support is not yet available.
+//
+// @return Always returns NULL (wl_display* not implemented)
+SKA_API void* ska_linux_get_wayland_display(void);
+#endif
+
+#ifdef SKA_PLATFORM_ANDROID
+// Set Android app pointer.
+// Stores the android_app pointer needed for native window access and event handling.
+//
+// NOTE: You typically do NOT need to call this function!
+// The library automatically provides android_main() and sets up the app pointer.
+// You just write a standard main(int argc, char** argv) like on desktop.
+//
+// This function is only needed if you're providing your own android_main()
+// for advanced use cases.
+//
+// @param app android_app* from android_native_app_glue (cast to void*)
+SKA_API void ska_android_set_app(void* app);
+#endif
+
+// ============================================================================
+// Text Input Queue
+// ============================================================================
+
+// Check if text input is available in the queue.
+// Queue is populated automatically from ska_event_text_input events during ska_event_poll().
+//
+// @return true if characters are available to consume, false if queue is empty
+SKA_API bool ska_text_has_input(void);
+
+// Consume one Unicode character from the text input queue.
+// Converts UTF-8 text from ska_event_text_input events to UTF-32 codepoints.
+// Ring buffer holds up to 256 codepoints; older input is dropped if buffer fills.
+//
+// @return Unicode codepoint (UTF-32), or 0 if queue is empty
+SKA_API uint32_t ska_text_consume(void);
+
+// Peek at the next Unicode character without consuming it.
+// Useful for lookahead without removing the character from the queue.
+//
+// @return Unicode codepoint (UTF-32), or 0 if queue is empty
+SKA_API uint32_t ska_text_peek(void);
+
+// Clear the text input queue.
+// Discards all pending text input. Useful when switching input contexts.
+SKA_API void ska_text_reset(void);
+
+// ============================================================================
+// Virtual Keyboard (Mobile)
+// ============================================================================
+
+// Text input context hints for virtual keyboard
+typedef enum ska_text_input_type_ {
+	ska_text_input_type_text = 0,      // Normal text
+	ska_text_input_type_number,        // Numeric input
+	ska_text_input_type_phone,         // Phone number
+	ska_text_input_type_email,         // Email address
+	ska_text_input_type_url,           // URL
+	ska_text_input_type_password,      // Password (masked)
+} ska_text_input_type_;
+
+// Show or hide virtual keyboard (mobile platforms).
+// On Android, hints to OS what keyboard layout to show (email, number pad, etc).
+// On desktop (Linux X11, Win32, macOS), this is a no-op (always false).
+//
+// @param visible true to show, false to hide
+// @param type Type of text input expected (only used when showing on Android)
+SKA_API void ska_virtual_keyboard_show(bool visible, ska_text_input_type_ type);
+
+// Check if virtual keyboard is currently visible.
+// Returns the state set by ska_virtual_keyboard_show().
+//
+// @return true if virtual keyboard is shown (Android only), always false on desktop
+SKA_API bool ska_virtual_keyboard_is_visible(void);
+
+// ============================================================================
+// File I/O Utilities
+// ============================================================================
+
+// Read entire file into memory.
+// Allocates buffer with malloc(); caller must free with ska_file_free_data().
+// Binary mode (no newline translation). Uses fseek/ftell for size, so not suitable for pipes.
+//
+// @param filename Path to file (UTF-8)
+// @param out_data Output pointer to file data (required, not NULL), receives malloc'd buffer
+// @param out_size Output size in bytes (can be NULL if you don't need size)
+// @return true on success, false on failure (check ska_error_get())
+SKA_API bool ska_file_read(const char* filename, void** out_data, size_t* out_size);
+
+// Read text file into a null-terminated string.
+// Calls ska_file_read() then reallocs to add '\0' terminator.
+// Caller must free the returned string with ska_file_free_data().
+//
+// @param filename Path to file (UTF-8)
+// @param out_text Output pointer to null-terminated string (required, not NULL)
+// @return true on success, false on failure (check ska_error_get())
+SKA_API bool ska_file_read_text(const char* filename, char** out_text);
+
+// Write data to file.
+// Binary mode (no newline translation). Creates or truncates file.
+// If size is 0, creates empty file (data can be NULL in this case).
+//
+// @param filename Path to file (UTF-8)
+// @param data Data to write (can be NULL if size is 0)
+// @param size Size in bytes
+// @return true on success, false on failure (check ska_error_get())
+SKA_API bool ska_file_write(const char* filename, const void* data, size_t size);
+
+// Write null-terminated string to file.
+// Writes strlen(text) bytes (does not write the null terminator).
+// Equivalent to ska_file_write(filename, text, strlen(text)).
+//
+// @param filename Path to file (UTF-8)
+// @param text Text to write (UTF-8), required not NULL
+// @return true on success, false on failure (check ska_error_get())
+SKA_API bool ska_file_write_text(const char* filename, const char* text);
+
+// Free data returned by ska_file_read() or ska_file_read_text().
+// Just calls free(). Safe to pass NULL (no-op).
+//
+// @param data Pointer returned by ska_file_read() or ska_file_read_text()
+SKA_API void ska_file_free_data(void* data);
+
+// Check if file exists.
+// Uses access() on POSIX, _access() on Windows. Checks F_OK (file existence).
+//
+// @param filename Path to file (UTF-8)
+// @return true if file exists and is accessible, false otherwise
+SKA_API bool ska_file_exists(const char* filename);
+
+// Get file size without reading it.
+// Uses stat() on POSIX, _stat() on Windows. Returns 0 on error (can't distinguish from empty file).
+//
+// @param filename Path to file (UTF-8)
+// @return File size in bytes, or 0 on failure (ambiguous with empty file)
+SKA_API size_t ska_file_size(const char* filename);
+
+// ============================================================================
+// Clipboard Support
+// ============================================================================
+
+// Get clipboard text size and optionally copy the text.
+// Two-call idiom: Call once with NULL buffer to get size, then call again with buffer.
+// Size includes null terminator. Returns 0 if clipboard is empty or unavailable.
+//
+// @param opt_out_buffer Buffer to copy clipboard text to (can be NULL to query size only)
+// @param buffer_size Size of the buffer in bytes (ignored if opt_out_buffer is NULL)
+// @return Size of clipboard text in bytes (including null terminator), or 0 if empty/unavailable
+SKA_API size_t ska_clipboard_get_text(char* opt_out_buffer, size_t buffer_size);
+
+// Set clipboard text.
+// Copies the provided text to the system clipboard. Text must be null-terminated UTF-8.
+//
+// @param text Text to copy to clipboard (UTF-8), required not NULL
+// @return true on success, false on failure (check ska_error_get())
+SKA_API bool ska_clipboard_set_text(const char* text);
+
+// ============================================================================
+// Utilities
+// ============================================================================
+
+// Get system ticks in milliseconds.
+// Returns monotonic time (not affected by system clock changes).
+// Starts at 0 when ska_init() is called (subtracts start_time internally).
+// Platform: Win32 uses GetTickCount64(), POSIX uses clock_gettime(CLOCK_MONOTONIC).
+//
+// @return Milliseconds since ska_init() was called
+SKA_API uint64_t ska_time_get_elapsed_ms(void);
+
+// Sleep for specified milliseconds.
+// Uses Sleep() on Win32, usleep() on POSIX. Not high-precision (typical resolution: ~1-15ms).
+//
+// @param ms Milliseconds to sleep (approximate)
+SKA_API void ska_time_sleep(uint32_t ms);
+
+// ============================================================================
+// Logging
+// ============================================================================
+
+// Log levels
+typedef enum ska_log_ {
+	ska_log_info = 0,
+	ska_log_warn,
+	ska_log_error,
+} ska_log_;
+
+// Cross-platform logging function.
+// Android: uses __android_log_vprint() to logcat with tag "sk_app"
+// Desktop: prints to stdout (info/warn) or stderr (error) with level prefix like "[ERROR] "
+// Automatically appends newline on desktop, not needed on Android.
+//
+// @param level Log level (ska_log_info, ska_log_warn, ska_log_error)
+// @param fmt Printf-style format string (UTF-8)
+// @param ... Format arguments
+SKA_API void ska_log(ska_log_ level, const char* fmt, ...);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif // SKA_APP_H
