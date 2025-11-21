@@ -351,7 +351,7 @@ void ska_platform_window_maximize(ska_window_t* window) {
 	event.type = ClientMessage;
 	event.xclient.window = window->xwindow;
 	event.xclient.message_type = g_ska.net_wm_state;
-	event.xclient.format = 32;
+	event.xclient.format = 32; 
 	event.xclient.data.l[0] = 1; // _NET_WM_STATE_ADD
 	event.xclient.data.l[1] = g_ska.net_wm_state_maximized_vert;
 	event.xclient.data.l[2] = g_ska.net_wm_state_maximized_horz;
@@ -373,7 +373,17 @@ void ska_platform_window_restore(ska_window_t* window) {
 
 void ska_platform_window_raise(ska_window_t* window) {
 	XRaiseWindow(g_ska.x_display, window->xwindow);
-	XSetInputFocus(g_ska.x_display, window->xwindow, RevertToParent, CurrentTime);
+	// Only set focus if window is visible and actually mapped
+	if (window->is_visible) {
+		// Sync and verify the window is actually mapped before setting focus
+		XSync(g_ska.x_display, False);
+		
+		XWindowAttributes attrs;
+		if (XGetWindowAttributes(g_ska.x_display, window->xwindow, &attrs) &&
+		    attrs.map_state == IsViewable) {
+			XSetInputFocus(g_ska.x_display, window->xwindow, RevertToPointerRoot, CurrentTime);
+		}
+	}
 	XFlush(g_ska.x_display);
 }
 
