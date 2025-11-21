@@ -739,7 +739,13 @@ bool ska_platform_vk_create_surface(const ska_window_t* window, VkInstance insta
 		return false;
 	}
 
-	PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)dlsym(module, "vkGetInstanceProcAddr");
+	union {
+		void* obj;
+		PFN_vkGetInstanceProcAddr func;
+	} vkGetInstanceProcAddr_ptr;
+	
+	vkGetInstanceProcAddr_ptr.obj = dlsym(module, "vkGetInstanceProcAddr");
+	PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr = vkGetInstanceProcAddr_ptr.func;
 	if (!vkGetInstanceProcAddr) {
 		ska_set_error("Failed to load vkGetInstanceProcAddr");
 		return false;
@@ -804,8 +810,8 @@ size_t ska_platform_clipboard_get_text(char* opt_out_buffer, size_t buffer_size)
 	// Wait for SelectionNotify event with timeout
 	XEvent event;
 	bool received = false;
-	const int32_t timeout_ms = 500;
-	const int32_t start_time = ska_time_get_elapsed_ms();
+	const uint64_t timeout_ms = 500;
+	const uint64_t start_time = ska_time_get_elapsed_ms();
 
 	while (ska_time_get_elapsed_ms() - start_time < timeout_ms) {
 		if (XCheckTypedWindowEvent(g_ska.x_display, window, SelectionNotify, &event)) {
