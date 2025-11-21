@@ -12,7 +12,7 @@ FetchContent_Declare(
 	sk_renderer
 	GIT_REPOSITORY https://github.com/StereoKit/sk_renderer.git
 	GIT_TAG        54b2b66d3f1230f1a73f95eabebb78dc653a02b9
-	GIT_SHALLOW    TRUE
+	#GIT_SHALLOW    TRUE
 )
 
 FetchContent_MakeAvailable(sk_renderer)
