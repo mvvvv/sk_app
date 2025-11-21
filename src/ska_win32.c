@@ -170,6 +170,10 @@ static uint16_t ska_win32_get_modifiers(void) {
 	return mods;
 }
 
+// Current cursor state (shared between ska_platform_set_cursor and WM_SETCURSOR handler)
+static HCURSOR g_current_cursor = NULL;
+static HCURSOR g_win32_cursors[ska_system_cursor_count_] = {0};
+
 static LRESULT CALLBACK ska_win32_window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 	ska_window_t* window = ska_find_window_by_hwnd(hwnd);
 	if (!window && msg != WM_CREATE) {
@@ -448,6 +452,14 @@ static LRESULT CALLBACK ska_win32_window_proc(HWND hwnd, UINT msg, WPARAM wparam
 				ska_post_event(&event);
 			}
 			return 0;
+
+		case WM_SETCURSOR:
+			// Handle cursor setting to prevent Windows from resetting to default
+			if (LOWORD(lparam) == HTCLIENT && g_current_cursor != NULL) {
+				SetCursor(g_current_cursor);
+				return TRUE;
+			}
+			break;
 	}
 
 	return DefWindowProcW(hwnd, msg, wparam, lparam);
@@ -662,22 +674,20 @@ void ska_platform_warp_mouse(ska_window_t* window, int32_t x, int32_t y) {
 }
 
 void ska_platform_set_cursor(ska_system_cursor_ cursor) {
-	static HCURSOR win32_cursors[ska_system_cursor_count_] = {0};
-
-	// Win32 system cursor mappings
-	const LPWSTR win32_cursor_ids[] = {
-		[ska_system_cursor_arrow]      = IDC_ARROW,
-		[ska_system_cursor_ibeam]      = IDC_IBEAM,
-		[ska_system_cursor_wait]       = IDC_WAIT,
-		[ska_system_cursor_crosshair]  = IDC_CROSS,
-		[ska_system_cursor_waitarrow]  = IDC_APPSTARTING,
-		[ska_system_cursor_sizenwse]   = IDC_SIZENWSE,
-		[ska_system_cursor_sizenesw]   = IDC_SIZENESW,
-		[ska_system_cursor_sizewe]     = IDC_SIZEWE,
-		[ska_system_cursor_sizens]     = IDC_SIZENS,
-		[ska_system_cursor_sizeall]    = IDC_SIZEALL,
-		[ska_system_cursor_no]         = IDC_NO,
-		[ska_system_cursor_hand]       = IDC_HAND,
+	// Win32 system cursor mappings (IDC_* are MAKEINTRESOURCE macros)
+	const LPCWSTR win32_cursor_ids[] = {
+		[ska_system_cursor_arrow]      = (LPCWSTR)IDC_ARROW,
+		[ska_system_cursor_ibeam]      = (LPCWSTR)IDC_IBEAM,
+		[ska_system_cursor_wait]       = (LPCWSTR)IDC_WAIT,
+		[ska_system_cursor_crosshair]  = (LPCWSTR)IDC_CROSS,
+		[ska_system_cursor_waitarrow]  = (LPCWSTR)IDC_APPSTARTING,
+		[ska_system_cursor_sizenwse]   = (LPCWSTR)IDC_SIZENWSE,
+		[ska_system_cursor_sizenesw]   = (LPCWSTR)IDC_SIZENESW,
+		[ska_system_cursor_sizewe]     = (LPCWSTR)IDC_SIZEWE,
+		[ska_system_cursor_sizens]     = (LPCWSTR)IDC_SIZENS,
+		[ska_system_cursor_sizeall]    = (LPCWSTR)IDC_SIZEALL,
+		[ska_system_cursor_no]         = (LPCWSTR)IDC_NO,
+		[ska_system_cursor_hand]       = (LPCWSTR)IDC_HAND,
 	};
 
 	if (cursor >= ska_system_cursor_count_) {
@@ -685,11 +695,12 @@ void ska_platform_set_cursor(ska_system_cursor_ cursor) {
 	}
 
 	// Load cursor if not already cached
-	if (win32_cursors[cursor] == NULL) {
-		win32_cursors[cursor] = LoadCursorW(NULL, win32_cursor_ids[cursor]);
+	if (g_win32_cursors[cursor] == NULL) {
+		g_win32_cursors[cursor] = LoadCursorW(NULL, win32_cursor_ids[cursor]);
 	}
 
-	SetCursor(win32_cursors[cursor]);
+	g_current_cursor = g_win32_cursors[cursor];
+	SetCursor(g_current_cursor);
 }
 
 void ska_platform_show_cursor(bool show) {

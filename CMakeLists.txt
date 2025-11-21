@@ -81,6 +81,9 @@ if(WIN32)
 	# Windows-specific sources
 	target_sources(sk_app PRIVATE src/ska_win32.c)
 
+	# Windows libraries
+	target_link_libraries(sk_app PRIVATE winmm)
+
 	# Static link MinGW runtime for cross-compilation
 	if(MINGW)
 		target_link_options(sk_app PRIVATE -static-libgcc -static-libstdc++ -static)

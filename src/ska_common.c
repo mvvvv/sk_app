@@ -9,7 +9,6 @@
 
 #ifdef SKA_PLATFORM_WIN32
 #include <timeapi.h>
-#pragma comment(lib, "winmm.lib")
 #else
 #include <unistd.h>
 #endif
