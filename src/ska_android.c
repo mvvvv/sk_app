@@ -300,9 +300,89 @@ static int32_t ska_android_handle_input(struct android_app* app, AInputEvent* in
 		// Touch/Mouse event
 		int32_t action = AMotionEvent_getAction(input_event);
 		int32_t action_masked = action & AMOTION_EVENT_ACTION_MASK;
+		int32_t source = AInputEvent_getSource(input_event);
 
 		float x = AMotionEvent_getX(input_event, 0);
 		float y = AMotionEvent_getY(input_event, 0);
+
+		// Handle mouse scroll wheel
+		if (action_masked == AMOTION_EVENT_ACTION_SCROLL) {
+			float vscroll = AMotionEvent_getAxisValue(input_event, AMOTION_EVENT_AXIS_VSCROLL, 0);
+			float hscroll = AMotionEvent_getAxisValue(input_event, AMOTION_EVENT_AXIS_HSCROLL, 0);
+
+			event.type = ska_event_mouse_wheel;
+			event.mouse_wheel.window_id = window->id;
+			event.mouse_wheel.x = (int32_t)hscroll;
+			event.mouse_wheel.y = (int32_t)vscroll;
+			event.mouse_wheel.precise_x = hscroll;
+			event.mouse_wheel.precise_y = vscroll;
+
+			ska_post_event(&event);
+			return 1;
+		}
+
+		// Handle mouse button events (for mice/trackpads connected to Android)
+		if ((source & AINPUT_SOURCE_MOUSE) && action_masked == AMOTION_EVENT_ACTION_BUTTON_PRESS) {
+			int32_t button_state = AMotionEvent_getButtonState(input_event);
+			ska_mouse_button_ button = ska_mouse_button_left;
+
+			if (button_state & AMOTION_EVENT_BUTTON_PRIMARY) {
+				button = ska_mouse_button_left;
+			} else if (button_state & AMOTION_EVENT_BUTTON_SECONDARY) {
+				button = ska_mouse_button_right;
+			} else if (button_state & AMOTION_EVENT_BUTTON_TERTIARY) {
+				button = ska_mouse_button_middle;
+			} else if (button_state & AMOTION_EVENT_BUTTON_BACK) {
+				button = ska_mouse_button_x1;
+			} else if (button_state & AMOTION_EVENT_BUTTON_FORWARD) {
+				button = ska_mouse_button_x2;
+			}
+
+			event.type = ska_event_mouse_button_down;
+			event.mouse_button.window_id = window->id;
+			event.mouse_button.button = button;
+			event.mouse_button.pressed = true;
+			event.mouse_button.clicks = 1;
+			event.mouse_button.x = (int32_t)x;
+			event.mouse_button.y = (int32_t)y;
+
+			g_ska.input_state.mouse_buttons |= (1 << (button - 1));
+
+			ska_post_event(&event);
+			return 1;
+		}
+
+		if ((source & AINPUT_SOURCE_MOUSE) && action_masked == AMOTION_EVENT_ACTION_BUTTON_RELEASE) {
+			int32_t button_state = AMotionEvent_getButtonState(input_event);
+			ska_mouse_button_ button = ska_mouse_button_left;
+
+			// Note: button_state reflects the state AFTER release, so we need to check what was released
+			// For simplicity, we'll just use the last button pressed
+			if (button_state & AMOTION_EVENT_BUTTON_PRIMARY) {
+				button = ska_mouse_button_left;
+			} else if (button_state & AMOTION_EVENT_BUTTON_SECONDARY) {
+				button = ska_mouse_button_right;
+			} else if (button_state & AMOTION_EVENT_BUTTON_TERTIARY) {
+				button = ska_mouse_button_middle;
+			} else if (button_state & AMOTION_EVENT_BUTTON_BACK) {
+				button = ska_mouse_button_x1;
+			} else if (button_state & AMOTION_EVENT_BUTTON_FORWARD) {
+				button = ska_mouse_button_x2;
+			}
+
+			event.type = ska_event_mouse_button_up;
+			event.mouse_button.window_id = window->id;
+			event.mouse_button.button = button;
+			event.mouse_button.pressed = false;
+			event.mouse_button.clicks = 1;
+			event.mouse_button.x = (int32_t)x;
+			event.mouse_button.y = (int32_t)y;
+
+			g_ska.input_state.mouse_buttons &= ~(1 << (button - 1));
+
+			ska_post_event(&event);
+			return 1;
+		}
 
 		switch (action_masked) {
 			case AMOTION_EVENT_ACTION_DOWN:

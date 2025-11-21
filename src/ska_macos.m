@@ -658,7 +658,17 @@ void ska_platform_pump_events(void) {
 						} else if (nsevent.type == NSEventTypeRightMouseDown || nsevent.type == NSEventTypeRightMouseUp) {
 							button = SKA_MOUSE_BUTTON_RIGHT;
 						} else {
-							button = SKA_MOUSE_BUTTON_MIDDLE;
+							// OtherMouse can be middle, X1, or X2
+							NSInteger buttonNumber = nsevent.buttonNumber;
+							if (buttonNumber == 2) {
+								button = SKA_MOUSE_BUTTON_MIDDLE;
+							} else if (buttonNumber == 3) {
+								button = ska_mouse_button_x1;
+							} else if (buttonNumber == 4) {
+								button = ska_mouse_button_x2;
+							} else {
+								button = SKA_MOUSE_BUTTON_MIDDLE; // Fallback for unknown buttons
+							}
 						}
 
 						NSPoint location = nsevent.locationInWindow;

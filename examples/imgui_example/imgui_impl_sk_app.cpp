@@ -283,8 +283,8 @@ bool ImGui_ImplSkApp_ProcessEvent(const ska_event_t* event)
 			if (event->mouse_button.button == ska_mouse_button_left)   mouse_button = 0;
 			if (event->mouse_button.button == ska_mouse_button_right)  mouse_button = 1;
 			if (event->mouse_button.button == ska_mouse_button_middle) mouse_button = 2;
-			// NOTE: Extra mouse buttons (X1, X2) are not available in ska_mouse_button_
-			// See missing features report
+			if (event->mouse_button.button == ska_mouse_button_x1)     mouse_button = 3;
+			if (event->mouse_button.button == ska_mouse_button_x2)     mouse_button = 4;
 
 			if (mouse_button == -1)
 				break;
@@ -345,21 +345,17 @@ bool ImGui_ImplSkApp_ProcessEvent(const ska_event_t* event)
  *    - Need: ska_ime_set_position(ska_window_t*, int32_t x, int32_t y, int32_t w, int32_t h)
  *    - This allows the system IME (for Asian languages, etc.) to position correctly
  *
- * 2. EXTRA MOUSE BUTTONS
- *    - Already available: ska_mouse_button_x1 and ska_mouse_button_x2
- *    - Just need to add handling in ImGui_ImplSkApp_ProcessEvent()
- *
- * 3. MOUSE SOURCE DISCRIMINATION
+ * 2. MOUSE SOURCE DISCRIMINATION
  *    - Need: Way to distinguish mouse vs touchscreen input
  *    - Could add a `source` field to ska_mouse_motion/button events
  *    - Values: ska_mouse_source_mouse, ska_mouse_source_touch
  *
- * 4. GLOBAL MOUSE POSITION
+ * 3. GLOBAL MOUSE POSITION
  *    - Already have: ska_mouse_get_global_state()
  *    - But need: ska_mouse_set_global_position(int32_t x, int32_t y)
  *    - This is used when io.WantSetMousePos is true (rare, but used in some ImGui features)
  *
- * 5. MOUSE CAPTURE
+ * 4. MOUSE CAPTURE
  *    - Need: ska_mouse_capture(bool enable)
  *    - Allows tracking mouse even when it leaves the window (during drag operations)
  *
@@ -367,10 +363,9 @@ bool ImGui_ImplSkApp_ProcessEvent(const ska_event_t* event)
  * -----------------
  * MEDIUM PRIORITY (improves UX):
  *   - IME support (#1)
- *   - Mouse capture (#5)
+ *   - Mouse capture (#4)
  *
  * LOW PRIORITY (nice to have):
- *   - Extra mouse buttons (#2)
- *   - Mouse source discrimination (#3)
- *   - Global mouse position (#4)
+ *   - Mouse source discrimination (#2)
+ *   - Global mouse position (#3)
  */

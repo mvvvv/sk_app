@@ -543,15 +543,25 @@ void ska_platform_pump_events(void) {
 
 			case ButtonPress:
 			case ButtonRelease: {
-				if (xev.xbutton.button == Button4 || xev.xbutton.button == Button5) {
-					// Mouse wheel
+				if (xev.xbutton.button >= Button4 && xev.xbutton.button <= 7) {
+					// Mouse wheel (vertical: Button4/Button5, horizontal: Button6/Button7)
 					if (xev.type == ButtonPress) {
 						event.type = ska_event_mouse_wheel;
 						event.mouse_wheel.window_id = window->id;
-						event.mouse_wheel.x = 0;
-						event.mouse_wheel.y = (xev.xbutton.button == Button4) ? 1 : -1;
-						event.mouse_wheel.precise_x = 0.0f;
-						event.mouse_wheel.precise_y = (float)event.mouse_wheel.y;
+
+						if (xev.xbutton.button == Button4 || xev.xbutton.button == Button5) {
+							// Vertical scroll
+							event.mouse_wheel.x = 0;
+							event.mouse_wheel.y = (xev.xbutton.button == Button4) ? 1 : -1;
+							event.mouse_wheel.precise_x = 0.0f;
+							event.mouse_wheel.precise_y = (float)event.mouse_wheel.y;
+						} else {
+							// Horizontal scroll (Button6 = left, Button7 = right)
+							event.mouse_wheel.x = (xev.xbutton.button == 6) ? -1 : 1;
+							event.mouse_wheel.y = 0;
+							event.mouse_wheel.precise_x = (float)event.mouse_wheel.x;
+							event.mouse_wheel.precise_y = 0.0f;
+						}
 						ska_post_event(&event);
 					}
 				} else {
