@@ -2,7 +2,7 @@
 // Platform backend for sk_app (window/input handling)
 
 #include "imgui_impl_sk_app.h"
-#include <ska_app.h>
+#include <sk_app.h>
 #include "imgui.h"
 #include <cstring>
 #include <cstdlib>
@@ -222,8 +222,37 @@ void ImGui_ImplSkApp_NewFrame()
 	ska_mouse_get_state(&mouse_x, &mouse_y);
 	io.AddMousePosEvent((float)mouse_x, (float)mouse_y);
 
-	// NOTE: Mouse cursor shape update is not yet implemented
-	// See missing features report
+	// Update mouse cursor shape
+	if (io.ConfigFlags & ImGuiConfigFlags_NoMouseCursorChange)
+		return;
+
+	ImGuiMouseCursor imgui_cursor = ImGui::GetMouseCursor();
+	if (imgui_cursor == ImGuiMouseCursor_None || io.MouseDrawCursor)
+	{
+		// Hide OS cursor
+		ska_cursor_show(false);
+	}
+	else
+	{
+		// Show OS cursor and set shape
+		ska_cursor_show(true);
+
+		ska_system_cursor_ ska_cursor = ska_system_cursor_arrow;
+		switch (imgui_cursor)
+		{
+			case ImGuiMouseCursor_Arrow:       ska_cursor = ska_system_cursor_arrow; break;
+			case ImGuiMouseCursor_TextInput:   ska_cursor = ska_system_cursor_ibeam; break;
+			case ImGuiMouseCursor_ResizeAll:   ska_cursor = ska_system_cursor_sizeall; break;
+			case ImGuiMouseCursor_ResizeNS:    ska_cursor = ska_system_cursor_sizens; break;
+			case ImGuiMouseCursor_ResizeEW:    ska_cursor = ska_system_cursor_sizewe; break;
+			case ImGuiMouseCursor_ResizeNESW:  ska_cursor = ska_system_cursor_sizenesw; break;
+			case ImGuiMouseCursor_ResizeNWSE:  ska_cursor = ska_system_cursor_sizenwse; break;
+			case ImGuiMouseCursor_Hand:        ska_cursor = ska_system_cursor_hand; break;
+			case ImGuiMouseCursor_NotAllowed:  ska_cursor = ska_system_cursor_no; break;
+			default: break;
+		}
+		ska_cursor_set(ska_cursor);
+	}
 }
 
 bool ImGui_ImplSkApp_ProcessEvent(const ska_event_t* event)
@@ -312,57 +341,36 @@ bool ImGui_ImplSkApp_ProcessEvent(const ska_event_t* event)
  * The following features for the backend are not yet implemented
  * due to missing functionality in sk_app:
 
- * 2. MOUSE CURSOR SHAPE
- *    - Need: ska_cursor_create_system(ska_system_cursor_) -> ska_cursor_t*
- *    - Need: ska_cursor_destroy(ska_cursor_t*)
- *    - Need: ska_cursor_set(ska_cursor_t*)
- *    - Enum values needed:
- *      - ska_system_cursor_arrow
- *      - ska_system_cursor_ibeam
- *      - ska_system_cursor_wait
- *      - ska_system_cursor_crosshair
- *      - ska_system_cursor_waitarrow
- *      - ska_system_cursor_sizenwse
- *      - ska_system_cursor_sizenesw
- *      - ska_system_cursor_sizewe
- *      - ska_system_cursor_sizens
- *      - ska_system_cursor_sizeall
- *      - ska_system_cursor_no
- *      - ska_system_cursor_hand
- *
- * 3. IME (INPUT METHOD EDITOR) SUPPORT
+ * 1. IME (INPUT METHOD EDITOR) SUPPORT
  *    - Need: ska_ime_set_position(ska_window_t*, int32_t x, int32_t y, int32_t w, int32_t h)
  *    - This allows the system IME (for Asian languages, etc.) to position correctly
  *
- * 4. EXTRA MOUSE BUTTONS
- *    - Need: ska_mouse_button_x1 and ska_mouse_button_x2 in ska_mouse_button_ enum
- *    - These are forward/back buttons on gaming mice
+ * 2. EXTRA MOUSE BUTTONS
+ *    - Already available: ska_mouse_button_x1 and ska_mouse_button_x2
+ *    - Just need to add handling in ImGui_ImplSkApp_ProcessEvent()
  *
- * 5. MOUSE SOURCE DISCRIMINATION
+ * 3. MOUSE SOURCE DISCRIMINATION
  *    - Need: Way to distinguish mouse vs touchscreen input
  *    - Could add a `source` field to ska_mouse_motion/button events
  *    - Values: ska_mouse_source_mouse, ska_mouse_source_touch
  *
- * 6. GLOBAL MOUSE POSITION
+ * 4. GLOBAL MOUSE POSITION
  *    - Already have: ska_mouse_get_global_state()
  *    - But need: ska_mouse_set_global_position(int32_t x, int32_t y)
  *    - This is used when io.WantSetMousePos is true (rare, but used in some ImGui features)
  *
- * 7. MOUSE CAPTURE
+ * 5. MOUSE CAPTURE
  *    - Need: ska_mouse_capture(bool enable)
  *    - Allows tracking mouse even when it leaves the window (during drag operations)
  *
  * PRIORITY RANKING:
  * -----------------
- * HIGH PRIORITY (needed for basic ImGui usage):
- *   - Mouse cursor shape (#2)
- *
  * MEDIUM PRIORITY (improves UX):
- *   - IME support (#3)
- *   - Mouse capture (#7)
+ *   - IME support (#1)
+ *   - Mouse capture (#5)
  *
  * LOW PRIORITY (nice to have):
- *   - Extra mouse buttons (#4)
- *   - Mouse source discrimination (#5)
- *   - Global mouse position (#6)
+ *   - Extra mouse buttons (#2)
+ *   - Mouse source discrimination (#3)
+ *   - Global mouse position (#4)
  */

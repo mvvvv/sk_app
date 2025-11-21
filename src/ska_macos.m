@@ -514,6 +514,32 @@ void ska_platform_warp_mouse(ska_window_t* window, int32_t x, int32_t y) {
 	}
 }
 
+void ska_platform_set_cursor(ska_system_cursor_ cursor) {
+	NSCursor* ns_cursor = nil;
+
+	switch (cursor) {
+		case ska_system_cursor_arrow:      ns_cursor = [NSCursor arrowCursor]; break;
+		case ska_system_cursor_ibeam:      ns_cursor = [NSCursor IBeamCursor]; break;
+		case ska_system_cursor_crosshair:  ns_cursor = [NSCursor crosshairCursor]; break;
+		case ska_system_cursor_hand:       ns_cursor = [NSCursor pointingHandCursor]; break;
+		case ska_system_cursor_sizewe:     ns_cursor = [NSCursor resizeLeftRightCursor]; break;
+		case ska_system_cursor_sizens:     ns_cursor = [NSCursor resizeUpDownCursor]; break;
+		case ska_system_cursor_no:         ns_cursor = [NSCursor operationNotAllowedCursor]; break;
+		case ska_system_cursor_wait:
+		case ska_system_cursor_waitarrow:
+		case ska_system_cursor_sizenwse:
+		case ska_system_cursor_sizenesw:
+		case ska_system_cursor_sizeall:
+			ns_cursor = [NSCursor arrowCursor];
+			break;
+		default:
+			ns_cursor = [NSCursor arrowCursor];
+			break;
+	}
+
+	[ns_cursor set];
+}
+
 void ska_platform_show_cursor(bool show) {
 	if (show) {
 		[NSCursor unhide];

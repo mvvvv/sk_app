@@ -157,7 +157,7 @@ install(TARGETS ${SK_APP_INSTALL_TARGETS}
 )
 
 
-install(FILES include/ska_app.h
+install(FILES include/sk_app.h
 	DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
 

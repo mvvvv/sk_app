@@ -480,6 +480,11 @@ void ska_platform_warp_mouse(ska_window_t* window, int32_t x, int32_t y) {
 	(void)window; (void)x; (void)y;
 }
 
+void ska_platform_set_cursor(ska_system_cursor_ cursor) {
+	// No cursor on touchscreen
+	(void)cursor;
+}
+
 void ska_platform_show_cursor(bool show) {
 	// No cursor on touchscreen
 	(void)show;

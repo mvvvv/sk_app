@@ -10,7 +10,7 @@
 // - File I/O utilities
 // - Timing functions
 
-#include <ska_app.h>
+#include <sk_app.h>
 #include <stdio.h>
 #include <stdbool.h>
 #include <string.h>

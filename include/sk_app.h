@@ -5,8 +5,8 @@
 //
 // License: MIT
 
-#ifndef SKA_APP_H
-#define SKA_APP_H
+#ifndef SK_APP_H
+#define SK_APP_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -526,6 +526,30 @@ SKA_API uint32_t ska_mouse_get_global_state(int32_t* opt_out_x, int32_t* opt_out
 // @param y New Y position in window coordinates
 SKA_API void ska_mouse_warp(ska_window_t* ref_window, int32_t x, int32_t y);
 
+// System cursor shapes
+typedef enum ska_system_cursor_ {
+	ska_system_cursor_arrow = 0,
+	ska_system_cursor_ibeam,
+	ska_system_cursor_wait,
+	ska_system_cursor_crosshair,
+	ska_system_cursor_waitarrow,
+	ska_system_cursor_sizenwse,
+	ska_system_cursor_sizenesw,
+	ska_system_cursor_sizewe,
+	ska_system_cursor_sizens,
+	ska_system_cursor_sizeall,
+	ska_system_cursor_no,
+	ska_system_cursor_hand,
+	ska_system_cursor_count_
+} ska_system_cursor_;
+
+// Set mouse cursor to a system cursor shape.
+// Changes the cursor appearance for all windows.
+// Platform support: Win32, X11. On Android, this is a no-op.
+//
+// @param cursor System cursor shape to set
+SKA_API void ska_cursor_set(ska_system_cursor_ cursor);
+
 // Show or hide mouse cursor.
 // On X11, creates invisible cursor from 1x1 transparent pixmap when hiding.
 // Affects all windows created by this library.
@@ -807,4 +831,4 @@ SKA_API void ska_log(ska_log_ level, const char* fmt, ...);
 }
 #endif
 
-#endif // SKA_APP_H
+#endif // SK_APP_H

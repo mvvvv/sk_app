@@ -5,7 +5,7 @@
 #ifndef SKA_INTERNAL_H
 #define SKA_INTERNAL_H
 
-#include "ska_app.h"
+#include "sk_app.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -32,6 +32,7 @@
 	#include <X11/extensions/Xrandr.h>
 	#include <X11/extensions/XInput2.h>
 	#include <X11/cursorfont.h>
+	#include <X11/Xcursor/Xcursor.h>
 #endif
 
 #ifdef SKA_PLATFORM_MACOS
@@ -290,6 +291,7 @@ void ska_platform_window_get_drawable_size(ska_window_t* ref_window, int32_t* op
 // Platform-specific input
 void ska_platform_warp_mouse(ska_window_t* ref_window, int32_t x, int32_t y);
 void ska_platform_show_cursor(bool show);
+void ska_platform_set_cursor(ska_system_cursor_ cursor);
 bool ska_platform_set_relative_mouse_mode(bool enabled);
 
 // Platform-specific text input (mobile only)

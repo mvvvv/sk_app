@@ -3,7 +3,7 @@
 //
 // Demonstrates integration with sk_renderer for Vulkan-based rendering.
 
-#include <ska_app.h>
+#include <sk_app.h>
 #include <sk_renderer.h>
 #include <stdio.h>
 #include <stdbool.h>

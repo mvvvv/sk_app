@@ -3,7 +3,7 @@
 //
 // Demonstrates Dear ImGui integration with sk_app and sk_renderer
 
-#include <ska_app.h>
+#include <sk_app.h>
 #include <sk_renderer.h>
 #include <stdio.h>
 #include <stdbool.h>

@@ -391,12 +391,75 @@ void ska_platform_warp_mouse(ska_window_t* ref_window, int32_t x, int32_t y) {
 	XFlush(g_ska.x_display);
 }
 
+// Cursor cache and state (shared between ska_platform_set_cursor and ska_platform_show_cursor)
+static Cursor g_x_cursors[ska_system_cursor_count_] = {0};
+static ska_system_cursor_ g_current_cursor = ska_system_cursor_arrow;
+
+void ska_platform_set_cursor(ska_system_cursor_ cursor) {
+	// Freedesktop cursor specification names
+	const char* xcursor_names[] = {
+		[ska_system_cursor_arrow]      = "default",
+		[ska_system_cursor_ibeam]      = "text",
+		[ska_system_cursor_wait]       = "wait",
+		[ska_system_cursor_crosshair]  = "crosshair",
+		[ska_system_cursor_waitarrow]  = "progress",
+		[ska_system_cursor_sizenwse]   = "nwse-resize",
+		[ska_system_cursor_sizenesw]   = "nesw-resize",
+		[ska_system_cursor_sizewe]     = "ew-resize",
+		[ska_system_cursor_sizens]     = "ns-resize",
+		[ska_system_cursor_sizeall]    = "all-scroll",
+		[ska_system_cursor_no]         = "not-allowed",
+		[ska_system_cursor_hand]       = "pointer",
+	};
+
+	// X11 cursor font fallbacks
+	const uint32_t x11_cursors[] = {
+		[ska_system_cursor_arrow]      = XC_left_ptr,
+		[ska_system_cursor_ibeam]      = XC_xterm,
+		[ska_system_cursor_wait]       = XC_watch,
+		[ska_system_cursor_crosshair]  = XC_crosshair,
+		[ska_system_cursor_waitarrow]  = XC_watch,
+		[ska_system_cursor_sizenwse]   = XC_top_left_corner,
+		[ska_system_cursor_sizenesw]   = XC_top_right_corner,
+		[ska_system_cursor_sizewe]     = XC_sb_h_double_arrow,
+		[ska_system_cursor_sizens]     = XC_sb_v_double_arrow,
+		[ska_system_cursor_sizeall]    = XC_fleur,
+		[ska_system_cursor_no]         = XC_X_cursor,
+		[ska_system_cursor_hand]       = XC_hand2,
+	};
+
+	if (cursor >= ska_system_cursor_count_) {
+		return;
+	}
+
+	if (g_x_cursors[cursor] == None) {
+		// Try themed cursor first
+		g_x_cursors[cursor] = XcursorLibraryLoadCursor(g_ska.x_display, xcursor_names[cursor]);
+
+		// Fall back to X11 cursor font
+		if (g_x_cursors[cursor] == None) {
+			g_x_cursors[cursor] = XCreateFontCursor(g_ska.x_display, x11_cursors[cursor]);
+		}
+	}
+
+	// Remember current cursor for ska_platform_show_cursor
+	g_current_cursor = cursor;
+
+	// Apply to all windows
+	for (uint32_t i = 0; i < SKA_MAX_WINDOWS; i++) {
+		if (g_ska.windows[i]) {
+			XDefineCursor(g_ska.x_display, g_ska.windows[i]->xwindow, g_x_cursors[cursor]);
+		}
+	}
+	XFlush(g_ska.x_display);
+}
+
 void ska_platform_show_cursor(bool show) {
 	if (show) {
-		// Show default cursor
+		// Restore the current cursor (don't use XUndefineCursor which resets to parent's cursor)
 		for (uint32_t i = 0; i < SKA_MAX_WINDOWS; i++) {
 			if (g_ska.windows[i]) {
-				XUndefineCursor(g_ska.x_display, g_ska.windows[i]->xwindow);
+				XDefineCursor(g_ska.x_display, g_ska.windows[i]->xwindow, g_x_cursors[g_current_cursor]);
 			}
 		}
 	} else {

@@ -398,6 +398,10 @@ SKA_API void ska_mouse_warp(ska_window_t* ref_window, int32_t x, int32_t y) {
 	ska_platform_warp_mouse(ref_window, x, y);
 }
 
+SKA_API void ska_cursor_set(ska_system_cursor_ cursor) {
+	ska_platform_set_cursor(cursor);
+}
+
 SKA_API void ska_cursor_show(bool show) {
 	ska_platform_show_cursor(show);
 	g_ska.input_state.cursor_visible = show;

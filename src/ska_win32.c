@@ -661,6 +661,37 @@ void ska_platform_warp_mouse(ska_window_t* window, int32_t x, int32_t y) {
 	SetCursorPos(pt.x, pt.y);
 }
 
+void ska_platform_set_cursor(ska_system_cursor_ cursor) {
+	static HCURSOR win32_cursors[ska_system_cursor_count_] = {0};
+
+	// Win32 system cursor mappings
+	const LPWSTR win32_cursor_ids[] = {
+		[ska_system_cursor_arrow]      = IDC_ARROW,
+		[ska_system_cursor_ibeam]      = IDC_IBEAM,
+		[ska_system_cursor_wait]       = IDC_WAIT,
+		[ska_system_cursor_crosshair]  = IDC_CROSS,
+		[ska_system_cursor_waitarrow]  = IDC_APPSTARTING,
+		[ska_system_cursor_sizenwse]   = IDC_SIZENWSE,
+		[ska_system_cursor_sizenesw]   = IDC_SIZENESW,
+		[ska_system_cursor_sizewe]     = IDC_SIZEWE,
+		[ska_system_cursor_sizens]     = IDC_SIZENS,
+		[ska_system_cursor_sizeall]    = IDC_SIZEALL,
+		[ska_system_cursor_no]         = IDC_NO,
+		[ska_system_cursor_hand]       = IDC_HAND,
+	};
+
+	if (cursor >= ska_system_cursor_count_) {
+		return;
+	}
+
+	// Load cursor if not already cached
+	if (win32_cursors[cursor] == NULL) {
+		win32_cursors[cursor] = LoadCursorW(NULL, win32_cursor_ids[cursor]);
+	}
+
+	SetCursor(win32_cursors[cursor]);
+}
+
 void ska_platform_show_cursor(bool show) {
 	ShowCursor(show ? TRUE : FALSE);
 }
