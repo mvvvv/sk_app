@@ -492,28 +492,15 @@ bool ska_platform_set_relative_mouse_mode(bool enabled) {
 }
 
 void ska_platform_pump_events(void) {
-	if (!g_ska.android_app) {
-		return;
-	}
-
-	// Poll all pending events
-	int32_t events;
-	struct android_poll_source* source;
-
-	// Non-blocking poll
-	while (ALooper_pollOnce(0, NULL, &events, (void**)&source) >= 0) {
-		if (source != NULL) {
-			source->process(g_ska.android_app, source);
-		}
-
-		// Check if we're exiting
-		if (g_ska.android_app->destroyRequested) {
-			ska_event_t event = {0};
-			event.type = ska_event_quit;
-			event.timestamp = (uint32_t)ska_time_get_elapsed_ms();
-			ska_post_event(&event);
-			return;
-		}
+	// On Android, events are pumped in the android_main() loop.
+	// This function is a no-op - events are automatically processed
+	// by the android_app callbacks (onAppCmd and onInputEvent).
+	// Just check if we should quit
+	if (g_ska.android_app && g_ska.android_app->destroyRequested) {
+		ska_event_t event = {0};
+		event.type = ska_event_quit;
+		event.timestamp = (uint32_t)ska_time_get_elapsed_ms();
+		ska_post_event(&event);
 	}
 }
 
