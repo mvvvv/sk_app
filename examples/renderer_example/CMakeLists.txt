@@ -22,6 +22,11 @@ message(STATUS "sk_renderer available (examples disabled)")
 if(SKA_PLATFORM STREQUAL "ANDROID")
 	# Android: build as shared library
 	add_library(renderer_example SHARED renderer_example.c)
+	add_apk(
+		TARGET renderer_example
+		PACKAGE_NAME net.stereokit.renderer_example
+		APP_NAME "Renderer Example"
+	)
 else()
 	# Desktop: build as executable
 	add_executable(renderer_example renderer_example.c)

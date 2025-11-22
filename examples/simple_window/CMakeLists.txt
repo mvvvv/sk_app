@@ -1,20 +1,19 @@
 # Simple Window Example
 
-if(SKA_PLATFORM STREQUAL "ANDROID")
+if(ANDROID)
 	# On Android, build as shared library
-	add_library(simple_window SHARED simple_window.c)
-	target_link_libraries(simple_window PRIVATE sk_app)
-
-	# Set up Android APK build
-	set(APK_TARGET_NAME "simple_window")
-	set(APK_NAME "simple_window")
-	set(APK_LIB_NAME "simple_window")
-	set(ANDROID_PACKAGE_NAME "com.example.ska.simple_window")
-	set(ANDROID_MIN_SDK_VERSION 32)
-	set(ANDROID_TARGET_SDK_VERSION 33)
-	include(${CMAKE_SOURCE_DIR}/android/AndroidBuild.cmake)
+	add_library(simple_window SHARED)
+	add_apk(
+		TARGET simple_window
+		PACKAGE_NAME net.stereokit.simple_window
+		APP_NAME "Simple Window"
+	)
 else()
 	# On desktop, build as executable
-	add_executable(simple_window simple_window.c)
-	target_link_libraries(simple_window PRIVATE sk_app)
+	add_executable(simple_window)
 endif()
+
+target_link_libraries(simple_window PRIVATE sk_app)
+target_sources       (simple_window PRIVATE
+	simple_window.c
+)

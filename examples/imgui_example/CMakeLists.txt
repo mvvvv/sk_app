@@ -47,6 +47,11 @@ message(STATUS "cimgui fetched")
 if(SKA_PLATFORM STREQUAL "ANDROID")
 	# Android: build as shared library
 	add_library(imgui_example SHARED main.c)
+	add_apk(
+		TARGET imgui_example
+		PACKAGE_NAME net.stereokit.imgui_example
+		APP_NAME "ImGui Example"
+	)
 else()
 	# Desktop: build as executable
 	add_executable(imgui_example main.c)

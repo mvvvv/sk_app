@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-	<string name="app_name">sk_app Example</string>
+	<!-- app_name is defined per-APK by add_apk() function -->
+	<!-- Add any other shared string resources here -->
 </resources>

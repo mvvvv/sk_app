@@ -144,6 +144,7 @@ static void ska_android_handle_cmd(struct android_app* app, int32_t cmd) {
 
 					int32_t width = ANativeWindow_getWidth(app->window);
 					int32_t height = ANativeWindow_getHeight(app->window);
+					int32_t format = ANativeWindow_getFormat(app->window);
 
 					window->width = width;
 					window->height = height;
@@ -155,7 +156,7 @@ static void ska_android_handle_cmd(struct android_app* app, int32_t cmd) {
 					window->is_visible = true;
 					ska_post_event(&event);
 
-					ska_log(ska_log_info, "Android window created: %dx%d", width, height);
+					ska_log(ska_log_info, "Android window created: %dx%d (format=%d)", width, height, format);
 				}
 			}
 			break;
@@ -302,8 +303,16 @@ static int32_t ska_android_handle_input(struct android_app* app, AInputEvent* in
 		int32_t action_masked = action & AMOTION_EVENT_ACTION_MASK;
 		int32_t source = AInputEvent_getSource(input_event);
 
-		float x = AMotionEvent_getX(input_event, 0);
-		float y = AMotionEvent_getY(input_event, 0);
+		// Get coordinates - Android provides float precision
+		// Note: getX/getY return coordinates relative to the window
+		// getXOffset/getYOffset are NOT position offsets - they're historical offsets
+		// for batch events. We should use getX/getY directly for window-relative coords.
+		float x_float = AMotionEvent_getX(input_event, 0);
+		float y_float = AMotionEvent_getY(input_event, 0);
+
+		// Round to avoid cumulative positioning errors
+		int32_t x = (int32_t)(x_float + 0.5f);
+		int32_t y = (int32_t)(y_float + 0.5f);
 
 		// Handle mouse scroll wheel
 		if (action_masked == AMOTION_EVENT_ACTION_SCROLL) {
@@ -384,10 +393,45 @@ static int32_t ska_android_handle_input(struct android_app* app, AInputEvent* in
 			return 1;
 		}
 
+		// Handle mouse hover motion (when no button is pressed)
+		if ((source & AINPUT_SOURCE_MOUSE) && action_masked == AMOTION_EVENT_ACTION_HOVER_MOVE) {
+			event.type = ska_event_mouse_motion;
+			event.mouse_motion.window_id = window->id;
+			event.mouse_motion.x = (int32_t)x;
+			event.mouse_motion.y = (int32_t)y;
+			event.mouse_motion.xrel = (int32_t)x - g_ska.input_state.mouse_x;
+			event.mouse_motion.yrel = (int32_t)y - g_ska.input_state.mouse_y;
+
+			g_ska.input_state.mouse_x = (int32_t)x;
+			g_ska.input_state.mouse_y = (int32_t)y;
+			g_ska.input_state.mouse_xrel = event.mouse_motion.xrel;
+			g_ska.input_state.mouse_yrel = event.mouse_motion.yrel;
+
+			ska_post_event(&event);
+			return 1;
+		}
+
 		switch (action_masked) {
 			case AMOTION_EVENT_ACTION_DOWN:
-			case AMOTION_EVENT_ACTION_POINTER_DOWN:
-				// Touch down = Left mouse button down
+				// Primary touch down = Mouse motion + Left button down
+				// First send motion event to update position
+				if ((int32_t)x != g_ska.input_state.mouse_x || (int32_t)y != g_ska.input_state.mouse_y) {
+					event.type = ska_event_mouse_motion;
+					event.mouse_motion.window_id = window->id;
+					event.mouse_motion.x = (int32_t)x;
+					event.mouse_motion.y = (int32_t)y;
+					event.mouse_motion.xrel = (int32_t)x - g_ska.input_state.mouse_x;
+					event.mouse_motion.yrel = (int32_t)y - g_ska.input_state.mouse_y;
+
+					g_ska.input_state.mouse_x = (int32_t)x;
+					g_ska.input_state.mouse_y = (int32_t)y;
+					g_ska.input_state.mouse_xrel = event.mouse_motion.xrel;
+					g_ska.input_state.mouse_yrel = event.mouse_motion.yrel;
+
+					ska_post_event(&event);
+				}
+
+				// Then send button down
 				event.type = ska_event_mouse_button_down;
 				event.mouse_button.window_id = window->id;
 				event.mouse_button.button = ska_mouse_button_left;
@@ -397,15 +441,30 @@ static int32_t ska_android_handle_input(struct android_app* app, AInputEvent* in
 				event.mouse_button.y = (int32_t)y;
 
 				g_ska.input_state.mouse_buttons |= (1 << (ska_mouse_button_left - 1));
-				g_ska.input_state.mouse_x = (int32_t)x;
-				g_ska.input_state.mouse_y = (int32_t)y;
 
 				ska_post_event(&event);
 				return 1;
 
 			case AMOTION_EVENT_ACTION_UP:
-			case AMOTION_EVENT_ACTION_POINTER_UP:
-				// Touch up = Left mouse button up
+				// Primary touch up = Mouse motion + Left button up
+				// First send motion event to update position
+				if ((int32_t)x != g_ska.input_state.mouse_x || (int32_t)y != g_ska.input_state.mouse_y) {
+					event.type = ska_event_mouse_motion;
+					event.mouse_motion.window_id = window->id;
+					event.mouse_motion.x = (int32_t)x;
+					event.mouse_motion.y = (int32_t)y;
+					event.mouse_motion.xrel = (int32_t)x - g_ska.input_state.mouse_x;
+					event.mouse_motion.yrel = (int32_t)y - g_ska.input_state.mouse_y;
+
+					g_ska.input_state.mouse_x = (int32_t)x;
+					g_ska.input_state.mouse_y = (int32_t)y;
+					g_ska.input_state.mouse_xrel = event.mouse_motion.xrel;
+					g_ska.input_state.mouse_yrel = event.mouse_motion.yrel;
+
+					ska_post_event(&event);
+				}
+
+				// Then send button up
 				event.type = ska_event_mouse_button_up;
 				event.mouse_button.window_id = window->id;
 				event.mouse_button.button = ska_mouse_button_left;
@@ -415,14 +474,13 @@ static int32_t ska_android_handle_input(struct android_app* app, AInputEvent* in
 				event.mouse_button.y = (int32_t)y;
 
 				g_ska.input_state.mouse_buttons &= ~(1 << (ska_mouse_button_left - 1));
-				g_ska.input_state.mouse_x = (int32_t)x;
-				g_ska.input_state.mouse_y = (int32_t)y;
 
 				ska_post_event(&event);
 				return 1;
 
 			case AMOTION_EVENT_ACTION_MOVE:
-				// Touch move = Mouse motion
+				// Touch/Mouse move = Mouse motion
+				// Note: For touch, this only fires while touching. For mouse, this fires when dragging.
 				event.type = ska_event_mouse_motion;
 				event.mouse_motion.window_id = window->id;
 				event.mouse_motion.x = (int32_t)x;
@@ -488,8 +546,21 @@ bool ska_platform_window_create(
 	window->native_window = NULL;
 	window->is_visible = false;
 
-	// Wait for window to be created by the system
 	ska_log(ska_log_info, "Android window stub created, waiting for native window");
+
+	// Wait for the native window to become available by polling the event loop
+	// The android_main() thread will process APP_CMD_INIT_WINDOW and set window->native_window
+	while (window->native_window == NULL) {
+		ska_time_sleep(10);  // Sleep 10ms between checks to avoid busy-waiting
+
+		// Safety check: if app is being destroyed, bail out
+		if (g_ska.android_app && g_ska.android_app->destroyRequested) {
+			ska_set_error("App destroy requested while waiting for window");
+			return false;
+		}
+	}
+
+	ska_log(ska_log_info, "Native window is now available: %dx%d", window->width, window->height);
 
 	return true;
 }
@@ -577,29 +648,12 @@ bool ska_platform_set_relative_mouse_mode(bool enabled) {
 }
 
 void ska_platform_pump_events(void) {
-	if (!g_ska.android_app) {
-		return;
-	}
-
-	// Poll all pending events
-	int32_t events;
-	struct android_poll_source* source;
-
-	// Non-blocking poll
-	while (ALooper_pollOnce(0, NULL, &events, (void**)&source) >= 0) {
-		if (source != NULL) {
-			source->process(g_ska.android_app, source);
-		}
-
-		// Check if we're exiting
-		if (g_ska.android_app->destroyRequested) {
-			ska_event_t event = {0};
-			event.type = ska_event_quit;
-			event.timestamp = (uint32_t)ska_time_get_elapsed_ms();
-			ska_post_event(&event);
-			return;
-		}
-	}
+	// On Android, events are already being pumped by the android_main() loop
+	// in the main thread. The user's main() runs in a separate thread and
+	// consumes events from the thread-safe event queue.
+	// Calling ALooper_pollOnce() here would fail with "No looper for this thread!"
+	// because the user thread doesn't have a looper attached.
+	(void)0;
 }
 
 /////////////////////////////////////////
@@ -969,23 +1023,21 @@ void android_main(struct android_app* app) {
 	pthread_t user_thread;
 	bool user_thread_started = false;
 
+	// Start user's main() thread immediately
+	// It will wait for the window to become available in ska_platform_window_create()
+	pthread_create(&user_thread, NULL, ska_android_user_main_thread, NULL);
+	user_thread_started = true;
+
 	// Main event loop
 	while (1) {
 		int32_t events;
 		struct android_poll_source* source;
 
-		// Poll for events
-		int32_t timeout = user_thread_started ? 0 : -1;
-		while (ALooper_pollOnce(timeout, NULL, &events, (void**)&source) >= 0) {
+		// Poll for events (non-blocking since user thread is running)
+		while (ALooper_pollOnce(0, NULL, &events, (void**)&source) >= 0) {
 			// Process this event
 			if (source != NULL) {
 				source->process(app, source);
-			}
-
-			// Start user's main() when window is ready
-			if (app->window != NULL && !user_thread_started) {
-				pthread_create(&user_thread, NULL, ska_android_user_main_thread, NULL);
-				user_thread_started = true;
 			}
 
 			// Check if we are exiting
@@ -1003,6 +1055,9 @@ void android_main(struct android_app* app) {
 			pthread_join(user_thread, NULL);
 			return;
 		}
+
+		// Small sleep to avoid busy-waiting
+		ska_time_sleep(1);
 	}
 }
 
