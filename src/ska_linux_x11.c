@@ -10,6 +10,7 @@
 #include <X11/keysym.h>
 #include <locale.h>
 #include <sys/select.h>
+#include <unistd.h>
 
 // Scancode translation table (X11 keycodes to ska_scancode_)
 static ska_scancode_ ska_x11_scancode_table[256];
@@ -290,6 +291,11 @@ bool ska_platform_window_create(
 		XSetWMNormalHints(g_ska.x_display, window->xwindow, size_hints);
 		XFree(size_hints);
 	}
+
+	// Ensure it knows its process id
+	Atom  net_wm_pid = XInternAtom(g_ska.x_display, "_NET_WM_PID", False);
+	pid_t pid        = getpid();
+	XChangeProperty(g_ska.x_display, window->xwindow, net_wm_pid, XA_CARDINAL, 32, PropModeReplace, (unsigned char*)&pid, 1);
 
 	window->x = x;
 	window->y = y;
