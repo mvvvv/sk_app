@@ -792,13 +792,19 @@ SKA_API bool ska_clipboard_set_text(const char* text);
 // Utilities
 // ============================================================================
 
-// Get system ticks in milliseconds.
+// Get elapsed time in nanoseconds since ska_init().
 // Returns monotonic time (not affected by system clock changes).
-// Starts at 0 when ska_init() is called (subtracts start_time internally).
-// Platform: Win32 uses GetTickCount64(), POSIX uses clock_gettime(CLOCK_MONOTONIC).
+// Platform: Win32 uses QueryPerformanceCounter, Linux/Android uses clock_gettime(CLOCK_MONOTONIC),
+// macOS uses mach_absolute_time().
 //
-// @return Milliseconds since ska_init() was called
-SKA_API uint64_t ska_time_get_elapsed_ms(void);
+// @return Nanoseconds since ska_init() was called
+SKA_API uint64_t ska_time_get_elapsed_ns(void);
+
+// Get elapsed time in seconds since ska_init().
+// Convenience wrapper: ska_time_get_elapsed_ns() / 1,000,000,000.0
+//
+// @return Seconds since ska_init() was called (sub-microsecond precision)
+SKA_API double ska_time_get_elapsed_s(void);
 
 // Sleep for specified milliseconds.
 // Uses Sleep() on Win32, usleep() on POSIX. Not high-precision (typical resolution: ~1-15ms).

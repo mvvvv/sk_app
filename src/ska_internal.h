@@ -309,7 +309,12 @@ size_t ska_platform_clipboard_get_text(char* opt_out_buffer, size_t buffer_size)
 bool   ska_platform_clipboard_set_text(const char* text);
 
 // Utility functions
-uint64_t ska_get_time_ms(void);
+uint64_t ska_get_time_ns(void);
+
+// Internal helper for event timestamps (milliseconds, wraps at ~49 days)
+static inline uint32_t ska_time_get_elapsed_ms(void) {
+	return (uint32_t)(ska_time_get_elapsed_ns() / 1000000ULL);
+}
 
 // Platform-specific utilities
 #ifdef SKA_PLATFORM_WIN32

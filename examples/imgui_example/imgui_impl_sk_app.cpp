@@ -11,7 +11,7 @@
 struct ImGui_ImplSkApp_Data
 {
 	ska_window_t* window;
-	uint64_t      time;
+	double        time;
 
 	// Mouse handling
 	int32_t       mouse_buttons_down;
@@ -141,7 +141,7 @@ bool ImGui_ImplSkApp_Init(ska_window_t* window)
 	io.BackendFlags |= ImGuiBackendFlags_HasMouseCursors;  // We can honor GetMouseCursor() values (optional)
 
 	bd->window = window;
-	bd->time = ska_time_get_elapsed_ms();
+	bd->time = 0.0;
 
 	// Setup clipboard callbacks
 	io.SetClipboardTextFn = [](void*, const char* text) {
@@ -212,9 +212,8 @@ void ImGui_ImplSkApp_NewFrame()
 		io.DisplayFramebufferScale = ImVec2((float)display_w / w, (float)display_h / h);
 
 	// Setup time step
-	uint64_t current_time = ska_time_get_elapsed_ms();
-	if (current_time == bd->time) current_time = current_time+1;
-	io.DeltaTime = bd->time > 0 ? (float)(current_time - bd->time) / 1000.0f : (float)(1.0f / 60.0f);
+	double current_time = ska_time_get_elapsed_s();
+	io.DeltaTime = bd->time > 0.0 ? (float)(current_time - bd->time) : (1.0f / 60.0f);
 	bd->time = current_time;
 
 	// Update mouse position

@@ -173,7 +173,7 @@ int32_t main(int argc, char** argv) {
 
 	bool     running         = true;
 	uint32_t frame           = 0;
-	uint64_t start_ticks     = ska_time_get_elapsed_ms();
+	double   start_time      = ska_time_get_elapsed_s();
 	bool     cursor_visible  = true;
 	bool     text_input_mode = false;
 
@@ -402,9 +402,8 @@ int32_t main(int argc, char** argv) {
 			}
 
 			// Timing information
-			uint64_t current_ticks = ska_time_get_elapsed_ms();
-			uint64_t elapsed_ms    = current_ticks - start_ticks;
-			ska_log(ska_log_info, "[TIMING] Elapsed time: %llu ms, Frame: %u", (unsigned long long)elapsed_ms, frame);
+			double elapsed = ska_time_get_elapsed_s() - start_time;
+			ska_log(ska_log_info, "[TIMING] Elapsed time: %.3f s, Frame: %u", elapsed, frame);
 		}
 
 		// Simulate frame timing - ~60 FPS

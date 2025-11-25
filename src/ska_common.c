@@ -13,6 +13,10 @@
 #include <unistd.h>
 #endif
 
+#ifdef SKA_PLATFORM_WIN32
+static LARGE_INTEGER g_qpc_frequency;
+#endif
+
 #ifdef SKA_PLATFORM_LINUX
 #include <sys/time.h>
 #include <unistd.h>
@@ -58,7 +62,10 @@ SKA_API bool ska_init(void) {
 #endif
 
 	memset(&g_ska, 0, sizeof(g_ska));
-	g_ska.start_time = ska_get_time_ms();
+#ifdef SKA_PLATFORM_WIN32
+	QueryPerformanceFrequency(&g_qpc_frequency);
+#endif
+	g_ska.start_time = ska_get_time_ns();
 	g_ska.next_window_id = 1;
 
 #ifdef SKA_PLATFORM_ANDROID
@@ -439,24 +446,34 @@ SKA_API bool ska_vk_create_surface(const ska_window_t* window, void* instance, v
 // Utilities
 // ============================================================================
 
-uint64_t ska_get_time_ms(void) {
+uint64_t ska_get_time_ns(void) {
 #ifdef SKA_PLATFORM_WIN32
-	return GetTickCount64();
+	LARGE_INTEGER counter;
+	QueryPerformanceCounter(&counter);
+	// Convert to nanoseconds: counter * 1e9 / frequency
+	// To avoid overflow, we do: (counter / freq) * 1e9 + (counter % freq) * 1e9 / freq
+	uint64_t whole_seconds = counter.QuadPart / g_qpc_frequency.QuadPart;
+	uint64_t remainder = counter.QuadPart % g_qpc_frequency.QuadPart;
+	return whole_seconds * 1000000000ULL + (remainder * 1000000000ULL) / g_qpc_frequency.QuadPart;
 #elif defined(SKA_PLATFORM_MACOS)
 	static mach_timebase_info_data_t timebase = {0};
 	if (timebase.denom == 0) {
 		mach_timebase_info(&timebase);
 	}
-	return (mach_absolute_time() * timebase.numer) / (timebase.denom * 1000000);
+	return (mach_absolute_time() * timebase.numer) / timebase.denom;
 #else
 	struct timespec ts;
 	clock_gettime(CLOCK_MONOTONIC, &ts);
-	return (uint64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+	return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
 #endif
 }
 
-SKA_API uint64_t ska_time_get_elapsed_ms(void) {
-	return ska_get_time_ms() - g_ska.start_time;
+SKA_API uint64_t ska_time_get_elapsed_ns(void) {
+	return ska_get_time_ns() - g_ska.start_time;
+}
+
+SKA_API double ska_time_get_elapsed_s(void) {
+	return (double)ska_time_get_elapsed_ns() / 1000000000.0;
 }
 
 SKA_API void ska_time_sleep(uint32_t ms) {
