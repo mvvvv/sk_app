@@ -15,6 +15,90 @@
 // Scancode translation table (Android key codes to ska_scancode_)
 static ska_scancode_ ska_android_scancode_table[256];
 
+// ============================================================================
+// Cached JNI references for window management (freeform/DEX mode)
+// ============================================================================
+// Method IDs and field IDs are stable once looked up and can be cached.
+// Classes must be converted to global references to survive across JNI calls.
+
+static struct {
+	JNIEnv*     env;  // Cached for user thread (attached at init, detached at shutdown)
+	// NativeActivity -> Window
+	jmethodID   activity_getWindow;
+	// Window methods
+	jmethodID   window_getAttributes;
+	jmethodID   window_setAttributes;
+	jmethodID   window_getDecorView;
+	// View methods
+	jmethodID   view_getWidth;
+	jmethodID   view_getHeight;
+	// LayoutParams fields
+	jfieldID    lp_x;
+	jfieldID    lp_y;
+	jfieldID    lp_width;
+	jfieldID    lp_height;
+} g_jni_cache = {0};
+
+static void ska_jni_cache_init(void) {
+	JavaVM* jvm = g_ska.android_app->activity->vm;
+	(*jvm)->AttachCurrentThread(jvm, &g_jni_cache.env, NULL);
+
+	JNIEnv* env = g_jni_cache.env;
+
+	// NativeActivity.getWindow()
+	jclass activity_class = (*env)->FindClass(env, "android/app/NativeActivity");
+	g_jni_cache.activity_getWindow = (*env)->GetMethodID(env, activity_class, "getWindow", "()Landroid/view/Window;");
+
+	// Window methods
+	jclass window_class = (*env)->FindClass(env, "android/view/Window");
+	g_jni_cache.window_getAttributes = (*env)->GetMethodID(env, window_class, "getAttributes", "()Landroid/view/WindowManager$LayoutParams;");
+	g_jni_cache.window_setAttributes = (*env)->GetMethodID(env, window_class, "setAttributes", "(Landroid/view/WindowManager$LayoutParams;)V");
+	g_jni_cache.window_getDecorView  = (*env)->GetMethodID(env, window_class, "getDecorView", "()Landroid/view/View;");
+
+	// View methods
+	jclass view_class = (*env)->FindClass(env, "android/view/View");
+	g_jni_cache.view_getWidth  = (*env)->GetMethodID(env, view_class, "getWidth", "()I");
+	g_jni_cache.view_getHeight = (*env)->GetMethodID(env, view_class, "getHeight", "()I");
+
+	// LayoutParams fields
+	jclass lp_class = (*env)->FindClass(env, "android/view/WindowManager$LayoutParams");
+	g_jni_cache.lp_x      = (*env)->GetFieldID(env, lp_class, "x", "I");
+	g_jni_cache.lp_y      = (*env)->GetFieldID(env, lp_class, "y", "I");
+	g_jni_cache.lp_width  = (*env)->GetFieldID(env, lp_class, "width", "I");
+	g_jni_cache.lp_height = (*env)->GetFieldID(env, lp_class, "height", "I");
+}
+
+static void ska_jni_cache_shutdown(void) {
+	if (g_jni_cache.env) {
+		JavaVM* jvm = g_ska.android_app->activity->vm;
+		(*jvm)->DetachCurrentThread(jvm);
+	}
+	memset(&g_jni_cache, 0, sizeof(g_jni_cache));
+}
+
+// Helper to get window position via JNI (for freeform/DEX mode)
+static void ska_android_get_window_position(ska_window_t* window) {
+	if (!g_jni_cache.env || !window) {
+		return;
+	}
+
+	JNIEnv* env = g_jni_cache.env;
+
+	jobject jwindow = (*env)->CallObjectMethod(env, g_ska.android_app->activity->clazz, g_jni_cache.activity_getWindow);
+
+	if (jwindow) {
+		jobject layout_params = (*env)->CallObjectMethod(env, jwindow, g_jni_cache.window_getAttributes);
+
+		if (layout_params) {
+			window->x = (*env)->GetIntField(env, layout_params, g_jni_cache.lp_x);
+			window->y = (*env)->GetIntField(env, layout_params, g_jni_cache.lp_y);
+
+			(*env)->DeleteLocalRef(env, layout_params);
+		}
+		(*env)->DeleteLocalRef(env, jwindow);
+	}
+}
+
 static void ska_init_scancode_table(void) {
 	// Initialize all to unknown
 	for (int32_t i = 0; i < 256; i++) {
@@ -142,7 +226,7 @@ static void ska_android_handle_cmd(struct android_app* app, int32_t cmd) {
 				if (window) {
 					window->native_window = app->window;
 
-					int32_t width = ANativeWindow_getWidth(app->window);
+					int32_t width  = ANativeWindow_getWidth(app->window);
 					int32_t height = ANativeWindow_getHeight(app->window);
 					int32_t format = ANativeWindow_getFormat(app->window);
 
@@ -152,13 +236,16 @@ static void ska_android_handle_cmd(struct android_app* app, int32_t cmd) {
 					window->drawable_height = height;
 					window->dpi_scale       = ska_platform_get_dpi_scale(window);
 
+					// Get position (relevant in freeform/DEX mode)
+					ska_android_get_window_position(window);
+
 					event.type = ska_event_window_shown;
 					event.window.window_id = window->id;
 					window->is_visible = true;
 					ska_post_event(&event);
 
-					ska_log(ska_log_info, "Android window created: %dx%d (format=%d, dpi_scale=%.2f)",
-						width, height, format, window->dpi_scale);
+					ska_log(ska_log_info, "Android window created: %dx%d at (%d,%d) (format=%d, dpi_scale=%.2f)",
+						width, height, window->x, window->y, format, window->dpi_scale);
 				}
 			}
 			break;
@@ -180,21 +267,35 @@ static void ska_android_handle_cmd(struct android_app* app, int32_t cmd) {
 
 		case APP_CMD_WINDOW_RESIZED:
 		case APP_CMD_CONFIG_CHANGED:
-			// Window has been resized
+			// Window has been resized or moved (freeform/DEX mode)
 			if (app->window != NULL && g_ska.window_count > 0) {
 				ska_window_t* window = g_ska.windows[0];
 				if (window) {
-					int32_t width = ANativeWindow_getWidth(app->window);
+					int32_t width  = ANativeWindow_getWidth(app->window);
 					int32_t height = ANativeWindow_getHeight(app->window);
+
+					// Also update position (may change in freeform mode)
+					int32_t old_x = window->x;
+					int32_t old_y = window->y;
+					ska_android_get_window_position(window);
+
+					// Post move event if position changed
+					if (window->x != old_x || window->y != old_y) {
+						event.type = ska_event_window_moved;
+						event.window.window_id = window->id;
+						event.window.data1 = window->x;
+						event.window.data2 = window->y;
+						ska_post_event(&event);
+					}
 
 					if (width != window->width || height != window->height) {
 						event.type = ska_event_window_resized;
 						event.window.window_id = window->id;
-						event.window.data1 = width;
-						event.window.data2 = height;
-						window->width = width;
-						window->height = height;
-						window->drawable_width = width;
+						event.window.data1     = width;
+						event.window.data2     = height;
+						window->width           = width;
+						window->height          = height;
+						window->drawable_width  = width;
 						window->drawable_height = height;
 						ska_post_event(&event);
 
@@ -510,11 +611,14 @@ bool ska_platform_init(void) {
 	}
 
 	// Set up callbacks
-	g_ska.android_app->onAppCmd = ska_android_handle_cmd;
+	g_ska.android_app->onAppCmd     = ska_android_handle_cmd;
 	g_ska.android_app->onInputEvent = ska_android_handle_input;
 
 	// Initialize scancode table
 	ska_init_scancode_table();
+
+	// Cache JNI method/field IDs for window management
+	ska_jni_cache_init();
 
 	ska_log(ska_log_info, "Android platform initialized");
 
@@ -522,8 +626,10 @@ bool ska_platform_init(void) {
 }
 
 void ska_platform_shutdown(void) {
+	ska_jni_cache_shutdown();
+
 	if (g_ska.android_app) {
-		g_ska.android_app->onAppCmd = NULL;
+		g_ska.android_app->onAppCmd     = NULL;
 		g_ska.android_app->onInputEvent = NULL;
 	}
 
@@ -582,22 +688,103 @@ void ska_platform_window_set_title(ska_window_t* window, const char* title) {
 }
 
 void ska_platform_window_set_frame_position(ska_window_t* window, int32_t x, int32_t y) {
-	// Android windows are always fullscreen, position cannot be changed
-	(void)window; (void)x; (void)y;
+	// In freeform/DEX mode, we can change window position via WindowManager.LayoutParams
+	if (!g_jni_cache.env) {
+		return;
+	}
+
+	JNIEnv* env = g_jni_cache.env;
+
+	jobject jwindow = (*env)->CallObjectMethod(env, g_ska.android_app->activity->clazz, g_jni_cache.activity_getWindow);
+
+	if (jwindow) {
+		jobject layout_params = (*env)->CallObjectMethod(env, jwindow, g_jni_cache.window_getAttributes);
+
+		if (layout_params) {
+			(*env)->SetIntField(env, layout_params, g_jni_cache.lp_x, x);
+			(*env)->SetIntField(env, layout_params, g_jni_cache.lp_y, y);
+
+			(*env)->CallVoidMethod(env, jwindow, g_jni_cache.window_setAttributes, layout_params);
+
+			window->x = x;
+			window->y = y;
+
+			(*env)->DeleteLocalRef(env, layout_params);
+		}
+		(*env)->DeleteLocalRef(env, jwindow);
+	}
 }
 
 void ska_platform_window_set_frame_size(ska_window_t* window, int32_t w, int32_t h) {
-	// Android window size is managed by the system
-	(void)window; (void)w; (void)h;
+	// In freeform/DEX mode, we can change window size via WindowManager.LayoutParams
+	(void)window; // Size change reflected via APP_CMD_WINDOW_RESIZED callback
+
+	if (!g_jni_cache.env) {
+		return;
+	}
+
+	JNIEnv* env = g_jni_cache.env;
+
+	jobject jwindow = (*env)->CallObjectMethod(env, g_ska.android_app->activity->clazz, g_jni_cache.activity_getWindow);
+
+	if (jwindow) {
+		jobject layout_params = (*env)->CallObjectMethod(env, jwindow, g_jni_cache.window_getAttributes);
+
+		if (layout_params) {
+			(*env)->SetIntField(env, layout_params, g_jni_cache.lp_width, w);
+			(*env)->SetIntField(env, layout_params, g_jni_cache.lp_height, h);
+
+			(*env)->CallVoidMethod(env, jwindow, g_jni_cache.window_setAttributes, layout_params);
+
+			(*env)->DeleteLocalRef(env, layout_params);
+		}
+		(*env)->DeleteLocalRef(env, jwindow);
+	}
 }
 
 void ska_platform_get_frame_extents(const ska_window_t* window, int32_t* out_left, int32_t* out_right, int32_t* out_top, int32_t* out_bottom) {
-	// Android windows are always fullscreen with no decorations
-	(void)window;
+	// In freeform/DEX mode, windows may have decorations (title bar, borders)
+	// We get these via getWindow().getDecorView() dimensions vs content view
 	*out_left   = 0;
 	*out_right  = 0;
 	*out_top    = 0;
 	*out_bottom = 0;
+
+	if (!g_jni_cache.env || !window->native_window) {
+		return;
+	}
+
+	JNIEnv* env = g_jni_cache.env;
+
+	jobject jwindow = (*env)->CallObjectMethod(env, g_ska.android_app->activity->clazz, g_jni_cache.activity_getWindow);
+
+	if (jwindow) {
+		jobject decor_view = (*env)->CallObjectMethod(env, jwindow, g_jni_cache.window_getDecorView);
+
+		if (decor_view) {
+			jint decor_width  = (*env)->CallIntMethod(env, decor_view, g_jni_cache.view_getWidth);
+			jint decor_height = (*env)->CallIntMethod(env, decor_view, g_jni_cache.view_getHeight);
+
+			// Get content (client) area size from native window
+			int32_t content_width  = ANativeWindow_getWidth(window->native_window);
+			int32_t content_height = ANativeWindow_getHeight(window->native_window);
+
+			// Frame extents = decor size - content size
+			// For Android, decorations are typically only at the top (title bar)
+			int32_t total_h_diff = decor_width - content_width;
+			int32_t total_v_diff = decor_height - content_height;
+
+			// Assume symmetric horizontal borders (if any)
+			*out_left   = total_h_diff / 2;
+			*out_right  = total_h_diff - *out_left;
+			// Title bar at top, no bottom border typically
+			*out_top    = total_v_diff;
+			*out_bottom = 0;
+
+			(*env)->DeleteLocalRef(env, decor_view);
+		}
+		(*env)->DeleteLocalRef(env, jwindow);
+	}
 }
 
 void ska_platform_window_show(ska_window_t* window) {
