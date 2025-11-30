@@ -179,6 +179,12 @@ typedef UINT (WINAPI *PFN_GetDpiForWindow)(HWND);
 static PFN_GetDpiForWindow g_pfnGetDpiForWindow = NULL;
 static bool                g_dpi_func_loaded    = false;
 
+// SetProcessDpiAwarenessContext is available on Windows 10 1703+
+// DPI_AWARENESS_CONTEXT is a handle type (HANDLE on newer SDKs, void* for compatibility)
+typedef BOOL (WINAPI *PFN_SetProcessDpiAwarenessContext)(void*);
+// DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = ((DPI_AWARENESS_CONTEXT)-4)
+#define SKA_DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 ((void*)(intptr_t)-4)
+
 static LRESULT CALLBACK ska_win32_window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 	ska_window_t* window = ska_find_window_by_hwnd(hwnd);
 	if (!window && msg != WM_CREATE) {
@@ -500,8 +506,22 @@ static LRESULT CALLBACK ska_win32_window_proc(HWND hwnd, UINT msg, WPARAM wparam
 bool ska_platform_init(void) {
 	g_ska.hinstance = GetModuleHandle(NULL);
 
-	// Enable high-DPI awareness
-	SetProcessDPIAware();
+	// Enable high-DPI awareness (per-monitor DPI v2 on Windows 10 1703+)
+	// Try SetProcessDpiAwarenessContext first (best option for modern Windows)
+	HMODULE user32 = LoadLibraryW(L"user32.dll");
+	if (user32) {
+		PFN_SetProcessDpiAwarenessContext pfnSetDpiContext =
+			(PFN_SetProcessDpiAwarenessContext)(void(*)(void))GetProcAddress(user32, "SetProcessDpiAwarenessContext");
+		if (pfnSetDpiContext) {
+			pfnSetDpiContext(SKA_DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+		} else {
+			// Fallback to SetProcessDPIAware for older Windows
+			SetProcessDPIAware();
+		}
+		// Note: We intentionally don't FreeLibrary - user32.dll stays loaded
+	} else {
+		SetProcessDPIAware();
+	}
 
 	// Register window class
 	g_ska.window_class.cbSize = sizeof(WNDCLASSEXW);
@@ -735,9 +755,11 @@ float ska_platform_get_dpi_scale(const ska_window_t* window) {
 	// Try to use GetDpiForWindow (Windows 10 1607+)
 	if (!g_dpi_func_loaded) {
 		g_dpi_func_loaded = true;
-		HMODULE user32 = GetModuleHandleW(L"user32.dll");
+		// Use LoadLibraryW to ensure user32.dll is loaded (GetModuleHandleW may return NULL)
+		HMODULE user32 = LoadLibraryW(L"user32.dll");
 		if (user32) {
 			g_pfnGetDpiForWindow = (PFN_GetDpiForWindow)(void(*)(void))GetProcAddress(user32, "GetDpiForWindow");
+			// Note: We intentionally don't FreeLibrary - user32.dll stays loaded for the process lifetime
 		}
 	}
 
