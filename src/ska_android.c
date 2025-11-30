@@ -146,17 +146,19 @@ static void ska_android_handle_cmd(struct android_app* app, int32_t cmd) {
 					int32_t height = ANativeWindow_getHeight(app->window);
 					int32_t format = ANativeWindow_getFormat(app->window);
 
-					window->width = width;
-					window->height = height;
-					window->drawable_width = width;
+					window->width           = width;
+					window->height          = height;
+					window->drawable_width  = width;
 					window->drawable_height = height;
+					window->dpi_scale       = ska_platform_get_dpi_scale(window);
 
 					event.type = ska_event_window_shown;
 					event.window.window_id = window->id;
 					window->is_visible = true;
 					ska_post_event(&event);
 
-					ska_log(ska_log_info, "Android window created: %dx%d (format=%d)", width, height, format);
+					ska_log(ska_log_info, "Android window created: %dx%d (format=%d, dpi_scale=%.2f)",
+						width, height, format, window->dpi_scale);
 				}
 			}
 			break;
@@ -579,14 +581,23 @@ void ska_platform_window_set_title(ska_window_t* window, const char* title) {
 	window->title = strdup(title);
 }
 
-void ska_platform_window_set_position(ska_window_t* window, int32_t x, int32_t y) {
+void ska_platform_window_set_frame_position(ska_window_t* window, int32_t x, int32_t y) {
 	// Android windows are always fullscreen, position cannot be changed
 	(void)window; (void)x; (void)y;
 }
 
-void ska_platform_window_set_size(ska_window_t* window, int32_t w, int32_t h) {
+void ska_platform_window_set_frame_size(ska_window_t* window, int32_t w, int32_t h) {
 	// Android window size is managed by the system
 	(void)window; (void)w; (void)h;
+}
+
+void ska_platform_get_frame_extents(const ska_window_t* window, int32_t* out_left, int32_t* out_right, int32_t* out_top, int32_t* out_bottom) {
+	// Android windows are always fullscreen with no decorations
+	(void)window;
+	*out_left   = 0;
+	*out_right  = 0;
+	*out_top    = 0;
+	*out_bottom = 0;
 }
 
 void ska_platform_window_show(ska_window_t* window) {
@@ -624,6 +635,21 @@ void ska_platform_window_get_drawable_size(ska_window_t* window, int32_t* opt_ou
 	(void)window;
 	(void)opt_out_width;
 	(void)opt_out_height;
+}
+
+float ska_platform_get_dpi_scale(const ska_window_t* window) {
+	(void)window;
+
+	// Get display density from Android configuration
+	if (g_ska.android_app && g_ska.android_app->config) {
+		int32_t density = AConfiguration_getDensity(g_ska.android_app->config);
+		if (density > 0 && density != ACONFIGURATION_DENSITY_NONE) {
+			// Android uses 160 DPI as baseline (mdpi)
+			return (float)density / 160.0f;
+		}
+	}
+
+	return 1.0f;
 }
 
 void ska_platform_warp_mouse(ska_window_t* window, int32_t x, int32_t y) {

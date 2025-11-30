@@ -65,14 +65,15 @@ int32_t main(int argc, char** argv) {
 
 	// Get initial window properties
 	int32_t win_x, win_y, win_w, win_h, draw_w, draw_h;
-	ska_window_get_position     (window, &win_x,  &win_y);
-	ska_window_get_size         (window, &win_w,  &win_h);
-	ska_window_get_drawable_size(window, &draw_w, &draw_h);
+	ska_window_get_content_position(window, &win_x,  &win_y);
+	ska_window_get_content_size    (window, &win_w,  &win_h);
+	ska_window_get_drawable_size   (window, &draw_w, &draw_h);
 	uint32_t flags = ska_window_get_flags(window);
 
 	ska_log(ska_log_info, "[WINDOW] Position:     (%d,%d)", win_x,  win_y);
 	ska_log(ska_log_info, "[WINDOW] Size:          %dx%d",  win_w,  win_h);
 	ska_log(ska_log_info, "[WINDOW] Drawable size: %dx%d",  draw_w, draw_h);
+	ska_log(ska_log_info, "[WINDOW] DPI scale:     %.2f",   ska_window_get_dpi_scale(window));
 	ska_log(ska_log_info, "[WINDOW] Flags:         0x%08X", flags);
 
 // ========================================================================
@@ -263,13 +264,13 @@ int32_t main(int argc, char** argv) {
 								break;
 
 							case ska_scancode_p:
-								ska_log(ska_log_info, "[ACTION] Moving window to (100, 100)");
-								ska_window_set_position(window, 100, 100);
+								ska_log(ska_log_info, "[ACTION] Moving window content to (100, 100)");
+								ska_window_set_content_position(window, 100, 100);
 								break;
 
 							case ska_scancode_s:
-								ska_log(ska_log_info, "[ACTION] Resizing window to 640x480");
-								ska_window_set_size(window, 640, 480);
+								ska_log(ska_log_info, "[ACTION] Resizing window content to 640x480");
+								ska_window_set_content_size(window, 640, 480);
 								break;
 
 							case ska_scancode_space:
@@ -308,7 +309,7 @@ int32_t main(int argc, char** argv) {
 
 							case ska_scancode_w:
 								ska_log(ska_log_info, "[ACTION] Warping mouse to center");
-								ska_window_get_size(window, &win_w, &win_h);
+								ska_window_get_content_size(window, &win_w, &win_h);
 								ska_mouse_warp(window, win_w / 2, win_h / 2);
 								break;
 						}

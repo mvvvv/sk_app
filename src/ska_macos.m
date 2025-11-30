@@ -378,6 +378,7 @@ bool ska_platform_window_create(
 		NSRect backing_rect = [view convertRectToBacking:client];
 		window->drawable_width = (int32_t)backing_rect.size.width;
 		window->drawable_height = (int32_t)backing_rect.size.height;
+		window->dpi_scale = ska_platform_get_dpi_scale(window);
 
 		/* Apply initial state */
 		if (flags & SKA_WINDOW_MAXIMIZED) {
@@ -418,19 +419,47 @@ void ska_platform_window_set_title(ska_window_t* window, const char* title) {
 	}
 }
 
-void ska_platform_window_set_position(ska_window_t* window, int32_t x, int32_t y) {
+void ska_platform_get_frame_extents(const ska_window_t* window, int32_t* out_left, int32_t* out_right, int32_t* out_top, int32_t* out_bottom) {
+	@autoreleasepool {
+		int32_t left = 0, right = 0, top = 0, bottom = 0;
+
+		if (window && window->ns_window) {
+			NSWindow* nswindow = (NSWindow*)window->ns_window;
+			NSRect content_rect = NSMakeRect(0, 0, 100, 100);
+			NSRect frame_rect = [nswindow frameRectForContentRect:content_rect];
+
+			left   = (int32_t)(-frame_rect.origin.x);
+			right  = (int32_t)(frame_rect.size.width - 100 - left);
+			bottom = (int32_t)(-frame_rect.origin.y);
+			top    = (int32_t)(frame_rect.size.height - 100 - bottom);
+		}
+
+		if (out_left)   *out_left   = left;
+		if (out_right)  *out_right  = right;
+		if (out_top)    *out_top    = top;
+		if (out_bottom) *out_bottom = bottom;
+	}
+}
+
+void ska_platform_window_set_frame_position(ska_window_t* window, int32_t x, int32_t y) {
 	@autoreleasepool {
 		NSWindow* nswindow = (NSWindow*)window->ns_window;
 		NSScreen* screen = [NSScreen mainScreen];
 		NSRect frame = [nswindow frame];
 
-		/* Convert from top-left to bottom-left origin */
+		/* Convert from top-left to bottom-left origin (y is frame top) */
 		CGFloat cocoa_y = screen.frame.size.height - y - frame.size.height;
 		[nswindow setFrameOrigin:NSMakePoint(x, cocoa_y)];
+
+		/* Update cached content position */
+		int32_t left, top;
+		ska_platform_get_frame_extents(window, &left, NULL, &top, NULL);
+		window->x = x + left;
+		window->y = y + top;
 	}
 }
 
-void ska_platform_window_set_size(ska_window_t* window, int32_t w, int32_t h) {
+void ska_platform_window_set_frame_size(ska_window_t* window, int32_t w, int32_t h) {
 	@autoreleasepool {
 		NSWindow* nswindow = (NSWindow*)window->ns_window;
 		NSRect frame = [nswindow frame];
@@ -496,6 +525,18 @@ void ska_platform_window_get_drawable_size(ska_window_t* window, int32_t* opt_ou
 		/* Retina displays have drawable size != window size */
 		(void)opt_out_width;
 		(void)opt_out_height;
+	}
+}
+
+float ska_platform_get_dpi_scale(const ska_window_t* window) {
+	@autoreleasepool {
+		/* macOS handles scaling transparently via backingScaleFactor.
+		 * The UI scale is built into the system and applications don't
+		 * need to manually scale fonts - Core Text does this automatically.
+		 * We return 1.0 here because macOS apps should use backingScaleFactor
+		 * only for rendering pixel-perfect content, not for UI scaling. */
+		(void)window;
+		return 1.0f;
 	}
 }
 

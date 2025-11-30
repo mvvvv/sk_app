@@ -116,6 +116,20 @@ int32_t main(int argc, char** argv) {
 		return 1;
 	}
 
+	// Scale UI for high-DPI displays
+	float dpi_scale = ImGui_ImplSkApp_GetDpiScale();
+	printf("[DPI] Scale factor: %.2f\n", dpi_scale);
+	if (dpi_scale != 1.0f) {
+		// Scale fonts (rebuild at larger size for crisp text)
+		ImFontConfig* font_config = ImFontConfig_ImFontConfig();
+		font_config->SizePixels = 13.0f * dpi_scale;
+		ImFontAtlas_AddFontDefault(io->Fonts, font_config);
+		ImFontConfig_destroy(font_config);
+
+		// Scale UI element sizes (padding, borders, etc.)
+		ImGuiStyle_ScaleAllSizes(igGetStyle(), dpi_scale);
+	}
+
 	if (!ImGui_ImplSkRenderer_Init()) {
 		fprintf(stderr, "Failed to initialize ImGui sk_renderer backend\n");
 		ImGui_ImplSkApp_Shutdown();

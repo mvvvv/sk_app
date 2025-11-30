@@ -235,33 +235,83 @@ SKA_API const char* ska_window_get_title(const ska_window_t* window) {
 	return window ? window->title : NULL;
 }
 
-SKA_API void ska_window_set_position(ska_window_t* ref_window, int32_t x, int32_t y) {
+// ============================================================================
+// Frame Position/Size (includes title bar and borders)
+// ============================================================================
+
+SKA_API void ska_window_set_frame_position(ska_window_t* ref_window, int32_t x, int32_t y) {
 	if (!ref_window) return;
-	ska_platform_window_set_position(ref_window, x, y);
+	ska_platform_window_set_frame_position(ref_window, x, y);
 }
 
-SKA_API void ska_window_get_position(const ska_window_t* window, int32_t* opt_out_x, int32_t* opt_out_y) {
+SKA_API void ska_window_get_frame_position(const ska_window_t* window, int32_t* opt_out_x, int32_t* opt_out_y) {
 	if (!window) return;
+	int32_t left, top;
+	ska_platform_get_frame_extents(window, &left, NULL, &top, NULL);
+	if (opt_out_x) *opt_out_x = window->x - left;
+	if (opt_out_y) *opt_out_y = window->y - top;
+}
+
+SKA_API void ska_window_set_frame_size(ska_window_t* ref_window, int32_t width, int32_t height) {
+	if (!ref_window) return;
+	// Convert frame size to content size by subtracting decorations
+	int32_t left, right, top, bottom;
+	ska_platform_get_frame_extents(ref_window, &left, &right, &top, &bottom);
+	int32_t content_w = width - left - right;
+	int32_t content_h = height - top - bottom;
+	if (content_w > 0 && content_h > 0) {
+		ska_platform_window_set_frame_size(ref_window, content_w, content_h);
+	}
+}
+
+SKA_API void ska_window_get_frame_size(const ska_window_t* window, int32_t* opt_out_width, int32_t* opt_out_height) {
+	if (!window) return;
+	int32_t left, right, top, bottom;
+	ska_platform_get_frame_extents(window, &left, &right, &top, &bottom);
+	if (opt_out_width)  *opt_out_width  = window->width + left + right;
+	if (opt_out_height) *opt_out_height = window->height + top + bottom;
+}
+
+// ============================================================================
+// Content Position/Size (client area, excludes decorations)
+// ============================================================================
+
+SKA_API void ska_window_set_content_position(ska_window_t* ref_window, int32_t x, int32_t y) {
+	if (!ref_window) return;
+	// Convert content position to frame position
+	int32_t left, top;
+	ska_platform_get_frame_extents(ref_window, &left, NULL, &top, NULL);
+	ska_platform_window_set_frame_position(ref_window, x - left, y - top);
+}
+
+SKA_API void ska_window_get_content_position(const ska_window_t* window, int32_t* opt_out_x, int32_t* opt_out_y) {
+	if (!window) return;
+	// window->x and window->y already store content position
 	if (opt_out_x) *opt_out_x = window->x;
 	if (opt_out_y) *opt_out_y = window->y;
 }
 
-SKA_API void ska_window_set_size(ska_window_t* ref_window, int32_t width, int32_t height) {
+SKA_API void ska_window_set_content_size(ska_window_t* ref_window, int32_t width, int32_t height) {
 	if (!ref_window) return;
-	ska_platform_window_set_size(ref_window, width, height);
+	ska_platform_window_set_frame_size(ref_window, width, height);
 }
 
-SKA_API void ska_window_get_size(const ska_window_t* window, int32_t* opt_out_width, int32_t* opt_out_height) {
+SKA_API void ska_window_get_content_size(const ska_window_t* window, int32_t* opt_out_width, int32_t* opt_out_height) {
 	if (!window) return;
-	if (opt_out_width) *opt_out_width = window->width;
+	if (opt_out_width)  *opt_out_width  = window->width;
 	if (opt_out_height) *opt_out_height = window->height;
 }
 
 SKA_API void ska_window_get_drawable_size(ska_window_t* ref_window, int32_t* opt_out_width, int32_t* opt_out_height) {
 	if (!ref_window) return;
 	ska_platform_window_get_drawable_size(ref_window, opt_out_width, opt_out_height);
-	if (opt_out_width) *opt_out_width = ref_window->drawable_width;
+	if (opt_out_width)  *opt_out_width  = ref_window->drawable_width;
 	if (opt_out_height) *opt_out_height = ref_window->drawable_height;
+}
+
+SKA_API float ska_window_get_dpi_scale(const ska_window_t* window) {
+	if (!window) return 1.0f;
+	return ska_platform_get_dpi_scale(window);
 }
 
 SKA_API void ska_window_show(ska_window_t* ref_window) {

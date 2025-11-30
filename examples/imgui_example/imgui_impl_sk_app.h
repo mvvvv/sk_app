@@ -22,6 +22,23 @@ void ImGui_ImplSkApp_NewFrame     (void);
 // Returns true if ImGui wants to capture this event
 bool ImGui_ImplSkApp_ProcessEvent (const struct ska_event_t* event);
 
+// Get the DPI scale factor for the window.
+// Use this to scale font sizes when loading fonts:
+//
+//   float dpi_scale = ImGui_ImplSkApp_GetDpiScale();
+//   ImFontConfig config;
+//   config.SizePixels = 13.0f * dpi_scale;
+//   io.Fonts->AddFontDefault(&config);
+//   // Or when loading a custom font:
+//   io.Fonts->AddFontFromFileTTF("font.ttf", 16.0f * dpi_scale);
+//
+// Note: Call this AFTER ImGui_ImplSkApp_Init() but BEFORE building the font atlas.
+//
+// To handle DPI changes at runtime (e.g., moving window between monitors):
+// 1. Watch for ska_event_window_dpi_changed in your event loop
+// 2. When received, rebuild fonts at the new scale and call ImGui_ImplSkRenderer_CreateFontsTexture()
+float ImGui_ImplSkApp_GetDpiScale (void);
+
 #ifdef __cplusplus
 }
 #endif

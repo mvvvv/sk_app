@@ -8,6 +8,7 @@
 #ifdef SKA_PLATFORM_LINUX
 
 #include <X11/keysym.h>
+#include <X11/Xresource.h>
 #include <locale.h>
 #include <sys/select.h>
 #include <unistd.h>
@@ -162,13 +163,23 @@ bool ska_platform_init(void) {
 		ska_log(ska_log_warn, "Failed to open X Input Method");
 	}
 
+	// Initialize Xrm database (required before using XrmGetResource for DPI queries)
+	XrmInitialize();
+
 	// Get WM atoms
-	g_ska.wm_protocols = XInternAtom(g_ska.x_display, "WM_PROTOCOLS", False);
-	g_ska.wm_delete_window = XInternAtom(g_ska.x_display, "WM_DELETE_WINDOW", False);
-	g_ska.net_wm_state = XInternAtom(g_ska.x_display, "_NET_WM_STATE", False);
-	g_ska.net_wm_state_fullscreen = XInternAtom(g_ska.x_display, "_NET_WM_STATE_FULLSCREEN", False);
+	g_ska.wm_protocols                = XInternAtom(g_ska.x_display, "WM_PROTOCOLS", False);
+	g_ska.wm_delete_window            = XInternAtom(g_ska.x_display, "WM_DELETE_WINDOW", False);
+	g_ska.net_wm_state                = XInternAtom(g_ska.x_display, "_NET_WM_STATE", False);
+	g_ska.net_wm_state_fullscreen     = XInternAtom(g_ska.x_display, "_NET_WM_STATE_FULLSCREEN", False);
 	g_ska.net_wm_state_maximized_vert = XInternAtom(g_ska.x_display, "_NET_WM_STATE_MAXIMIZED_VERT", False);
 	g_ska.net_wm_state_maximized_horz = XInternAtom(g_ska.x_display, "_NET_WM_STATE_MAXIMIZED_HORZ", False);
+	g_ska.resource_manager            = XInternAtom(g_ska.x_display, "RESOURCE_MANAGER", False);
+
+	// Watch root window for property changes (for DPI change detection via xrdb)
+	XSelectInput(g_ska.x_display, g_ska.x_root, PropertyChangeMask);
+
+	// Cache initial DPI scale
+	g_ska.cached_dpi_scale = 0.0f; // Will be set on first window creation
 
 	// Initialize scancode table
 	ska_init_scancode_table();
@@ -303,6 +314,12 @@ bool ska_platform_window_create(
 	window->height = h;
 	window->drawable_width = w;
 	window->drawable_height = h;
+	window->dpi_scale = ska_platform_get_dpi_scale(window);
+
+	// Cache DPI scale for change detection (first window sets it)
+	if (g_ska.cached_dpi_scale == 0.0f) {
+		g_ska.cached_dpi_scale = window->dpi_scale;
+	}
 
 	return true;
 }
@@ -328,14 +345,48 @@ void ska_platform_window_set_title(ska_window_t* window, const char* title) {
 	XFlush(g_ska.x_display);
 }
 
-void ska_platform_window_set_position(ska_window_t* window, int32_t x, int32_t y) {
-	XMoveWindow(g_ska.x_display, window->xwindow, x, y);
-	XFlush(g_ska.x_display);
-	window->x = x;
-	window->y = y;
+void ska_platform_get_frame_extents(const ska_window_t* window, int32_t* out_left, int32_t* out_right, int32_t* out_top, int32_t* out_bottom) {
+	int32_t left = 0, right = 0, top = 0, bottom = 0;
+
+	if (window && window->xwindow) {
+		Atom net_frame_extents = XInternAtom(g_ska.x_display, "_NET_FRAME_EXTENTS", False);
+		Atom actual_type;
+		int32_t actual_format;
+		unsigned long nitems, bytes_after;
+		unsigned char* data = NULL;
+
+		if (XGetWindowProperty(g_ska.x_display, window->xwindow, net_frame_extents,
+		                       0, 4, False, XA_CARDINAL,
+		                       &actual_type, &actual_format, &nitems, &bytes_after, &data) == Success) {
+			if (data && nitems == 4) {
+				long* extents = (long*)data;
+				left   = (int32_t)extents[0];
+				right  = (int32_t)extents[1];
+				top    = (int32_t)extents[2];
+				bottom = (int32_t)extents[3];
+			}
+			if (data) XFree(data);
+		}
+	}
+
+	if (out_left)   *out_left   = left;
+	if (out_right)  *out_right  = right;
+	if (out_top)    *out_top    = top;
+	if (out_bottom) *out_bottom = bottom;
 }
 
-void ska_platform_window_set_size(ska_window_t* window, int32_t w, int32_t h) {
+void ska_platform_window_set_frame_position(ska_window_t* window, int32_t x, int32_t y) {
+	XMoveWindow(g_ska.x_display, window->xwindow, x, y);
+	XFlush(g_ska.x_display);
+
+	// Update cached content position
+	int32_t left, top;
+	ska_platform_get_frame_extents(window, &left, NULL, &top, NULL);
+	window->x = x + left;
+	window->y = y + top;
+}
+
+void ska_platform_window_set_frame_size(ska_window_t* window, int32_t w, int32_t h) {
 	XResizeWindow(g_ska.x_display, window->xwindow, w, h);
 	XFlush(g_ska.x_display);
 }
@@ -389,6 +440,45 @@ void ska_platform_window_get_drawable_size(ska_window_t* window, int32_t* opt_ou
 	window->drawable_height = window->height;
 	(void)opt_out_width;
 	(void)opt_out_height;
+}
+
+float ska_platform_get_dpi_scale(const ska_window_t* window) {
+	(void)window;
+
+	// Query Xft.dpi from Xresources (this is how GNOME/KDE/etc communicate scaling)
+	char* resource_string = XResourceManagerString(g_ska.x_display);
+	if (resource_string) {
+		XrmDatabase db = XrmGetStringDatabase(resource_string);
+		if (db) {
+			XrmValue value;
+			char* type = NULL;
+			if (XrmGetResource(db, "Xft.dpi", "Xft.Dpi", &type, &value)) {
+				if (type && strcmp(type, "String") == 0 && value.addr) {
+					float dpi = (float)atof(value.addr);
+					XrmDestroyDatabase(db);
+					if (dpi > 0) {
+						return dpi / 96.0f; // 96 DPI is the baseline (100% scale)
+					}
+				}
+			}
+			XrmDestroyDatabase(db);
+		}
+	}
+
+	// Fallback: try to get DPI from screen dimensions
+	// This is less reliable but better than nothing
+	int32_t screen_width_px = DisplayWidth(g_ska.x_display, g_ska.x_screen);
+	int32_t screen_width_mm = DisplayWidthMM(g_ska.x_display, g_ska.x_screen);
+	if (screen_width_mm > 0) {
+		float dpi = (float)screen_width_px / ((float)screen_width_mm / 25.4f);
+		// Only use this if it's significantly different from 96
+		// (some systems report incorrect physical dimensions)
+		if (dpi >= 120.0f) {
+			return dpi / 96.0f;
+		}
+	}
+
+	return 1.0f;
 }
 
 void ska_platform_warp_mouse(ska_window_t* ref_window, int32_t x, int32_t y) {
@@ -501,6 +591,33 @@ void ska_platform_pump_events(void) {
 
 		// Filter through input method first
 		if (XFilterEvent(&xev, None)) {
+			continue;
+		}
+
+		// Handle root window events (DPI change detection)
+		if (xev.xany.window == g_ska.x_root) {
+			if (xev.type == PropertyNotify && xev.xproperty.atom == g_ska.resource_manager) {
+				// RESOURCE_MANAGER changed - check if DPI scale changed
+				float new_scale = ska_platform_get_dpi_scale(NULL);
+				if (new_scale != g_ska.cached_dpi_scale && g_ska.cached_dpi_scale > 0.0f) {
+					g_ska.cached_dpi_scale = new_scale;
+
+					// Send DPI changed event to all windows
+					for (uint32_t i = 0; i < SKA_MAX_WINDOWS; i++) {
+						ska_window_t* win = g_ska.windows[i];
+						if (win) {
+							win->dpi_scale = new_scale;
+
+							ska_event_t event = {0};
+							event.timestamp          = (uint32_t)ska_time_get_elapsed_ms();
+							event.type               = ska_event_window_dpi_changed;
+							event.window.window_id   = win->id;
+							event.window.data1       = (int32_t)(new_scale * 100.0f + 0.5f);
+							ska_post_event(&event);
+						}
+					}
+				}
+			}
 			continue;
 		}
 
@@ -661,14 +778,22 @@ void ska_platform_pump_events(void) {
 					window->drawable_height = xev.xconfigure.height;
 					ska_post_event(&event);
 				}
-				if (xev.xconfigure.x != window->x || xev.xconfigure.y != window->y) {
-					event.type = ska_event_window_moved;
-					event.window.window_id = window->id;
-					event.window.data1 = xev.xconfigure.x;
-					event.window.data2 = xev.xconfigure.y;
-					window->x = xev.xconfigure.x;
-					window->y = xev.xconfigure.y;
-					ska_post_event(&event);
+				{
+					// ConfigureNotify gives position relative to parent (WM frame).
+					// Translate to root coordinates for actual screen position.
+					Window child;
+					int32_t root_x, root_y;
+					XTranslateCoordinates(g_ska.x_display, window->xwindow, g_ska.x_root, 0, 0, &root_x, &root_y, &child);
+
+					if (root_x != window->x || root_y != window->y) {
+						event.type = ska_event_window_moved;
+						event.window.window_id = window->id;
+						event.window.data1 = root_x;
+						event.window.data2 = root_y;
+						window->x = root_x;
+						window->y = root_y;
+						ska_post_event(&event);
+					}
 				}
 				break;
 

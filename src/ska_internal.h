@@ -176,6 +176,7 @@ struct ska_window_t {
 	int32_t x, y;
 	int32_t width, height;
 	int32_t drawable_width, drawable_height;
+	float   dpi_scale; // Cached DPI scale factor (1.0 = 100%)
 
 	bool should_close;
 	bool is_visible;
@@ -240,8 +241,10 @@ typedef struct ska_state_t {
 	Atom net_wm_state_fullscreen;
 	Atom net_wm_state_maximized_vert;
 	Atom net_wm_state_maximized_horz;
+	Atom resource_manager; // For DPI change detection
 	XIM xim;
 	int32_t xi_opcode;
+	float cached_dpi_scale; // Track DPI changes
 #endif
 
 #ifdef SKA_PLATFORM_MACOS
@@ -278,8 +281,8 @@ void ska_platform_shutdown(void);
 bool ska_platform_window_create(ska_window_t* ref_window, const char* title, int32_t x, int32_t y, int32_t w, int32_t h, uint32_t flags);
 void ska_platform_window_destroy(ska_window_t* ref_window);
 void ska_platform_window_set_title(ska_window_t* ref_window, const char* title);
-void ska_platform_window_set_position(ska_window_t* ref_window, int32_t x, int32_t y);
-void ska_platform_window_set_size(ska_window_t* ref_window, int32_t w, int32_t h);
+void ska_platform_window_set_frame_position(ska_window_t* ref_window, int32_t x, int32_t y);
+void ska_platform_window_set_frame_size(ska_window_t* ref_window, int32_t w, int32_t h);
 void ska_platform_window_show(ska_window_t* ref_window);
 void ska_platform_window_hide(ska_window_t* ref_window);
 void ska_platform_window_maximize(ska_window_t* ref_window);
@@ -287,6 +290,11 @@ void ska_platform_window_minimize(ska_window_t* ref_window);
 void ska_platform_window_restore(ska_window_t* ref_window);
 void ska_platform_window_raise(ska_window_t* ref_window);
 void ska_platform_window_get_drawable_size(ska_window_t* ref_window, int32_t* opt_out_width, int32_t* opt_out_height);
+float ska_platform_get_dpi_scale(const ska_window_t* window);
+
+// Platform-specific frame extents (title bar, borders)
+// Returns the size of window decorations: left, right, top (title bar), bottom
+void ska_platform_get_frame_extents(const ska_window_t* window, int32_t* out_left, int32_t* out_right, int32_t* out_top, int32_t* out_bottom);
 
 // Platform-specific input
 void ska_platform_warp_mouse(ska_window_t* ref_window, int32_t x, int32_t y);

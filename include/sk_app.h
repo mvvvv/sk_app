@@ -165,51 +165,108 @@ SKA_API void ska_window_set_title(ska_window_t* ref_window, const char* title);
 // @return Window title (UTF-8), valid until ska_window_set_title() or ska_window_destroy()
 SKA_API const char* ska_window_get_title(const ska_window_t* window);
 
-// Set window position.
-// Position is in screen coordinates relative to the display origin.
+// ============================================================================
+// Window Frame Position/Size (includes title bar and borders)
+// ============================================================================
+
+// Set window frame position.
+// Positions the entire window including title bar and borders.
 // May not take effect immediately on some platforms (window managers can override).
 //
 // @param ref_window Window handle
-// @param x New X position in screen coordinates
-// @param y New Y position in screen coordinates
-SKA_API void ska_window_set_position(ska_window_t* ref_window, int32_t x, int32_t y);
+// @param x New X position of frame's top-left corner in screen coordinates
+// @param y New Y position of frame's top-left corner in screen coordinates
+SKA_API void ska_window_set_frame_position(ska_window_t* ref_window, int32_t x, int32_t y);
 
-// Get window position.
-// Returns cached position from last ConfigureNotify/move event.
-// Both output parameters can be NULL if you only care about one axis.
+// Get window frame position.
+// Returns the position of the entire window including title bar and borders.
 //
 // @param window Window handle
-// @param opt_out_x Output X position in screen coordinates (can be NULL)
-// @param opt_out_y Output Y position in screen coordinates (can be NULL)
-SKA_API void ska_window_get_position(const ska_window_t* window, int32_t* opt_out_x, int32_t* opt_out_y);
+// @param opt_out_x Output X position of frame (can be NULL)
+// @param opt_out_y Output Y position of frame (can be NULL)
+SKA_API void ska_window_get_frame_position(const ska_window_t* window, int32_t* opt_out_x, int32_t* opt_out_y);
 
-// Set window size.
-// Triggers ska_event_window_resized when size actually changes.
-// Resizable flag must be set, otherwise this may be ignored by window manager.
+// Set window frame size.
+// Sets the size of the entire window including title bar and borders.
+// Triggers ska_event_window_resized when content size actually changes.
 //
 // @param ref_window Window handle
-// @param width New width in screen coordinates (not pixels on high-DPI)
-// @param height New height in screen coordinates (not pixels on high-DPI)
-SKA_API void ska_window_set_size(ska_window_t* ref_window, int32_t width, int32_t height);
+// @param width New width of entire frame in screen coordinates
+// @param height New height of entire frame in screen coordinates
+SKA_API void ska_window_set_frame_size(ska_window_t* ref_window, int32_t width, int32_t height);
 
-// Get window size in screen coordinates.
-// Returns cached size from last ConfigureNotify/resize event.
+// Get window frame size.
+// Returns the size of the entire window including title bar and borders.
+//
+// @param window Window handle
+// @param opt_out_width Output width of frame (can be NULL)
+// @param opt_out_height Output height of frame (can be NULL)
+SKA_API void ska_window_get_frame_size(const ska_window_t* window, int32_t* opt_out_width, int32_t* opt_out_height);
+
+// ============================================================================
+// Window Content Position/Size (client area, excludes decorations)
+// ============================================================================
+
+// Set window content position.
+// Positions the window so that the content area's top-left is at (x, y).
+// The frame will be positioned above/left of this point to accommodate decorations.
+//
+// @param ref_window Window handle
+// @param x New X position of content area in screen coordinates
+// @param y New Y position of content area in screen coordinates
+SKA_API void ska_window_set_content_position(ska_window_t* ref_window, int32_t x, int32_t y);
+
+// Get window content position.
+// Returns the position of the content area (excludes title bar and borders).
+// This is where your rendered content actually appears on screen.
+//
+// @param window Window handle
+// @param opt_out_x Output X position of content area (can be NULL)
+// @param opt_out_y Output Y position of content area (can be NULL)
+SKA_API void ska_window_get_content_position(const ska_window_t* window, int32_t* opt_out_x, int32_t* opt_out_y);
+
+// Set window content size.
+// Sets the size of the content area (excludes title bar and borders).
+// Triggers ska_event_window_resized when size actually changes.
+//
+// @param ref_window Window handle
+// @param width New content width in screen coordinates
+// @param height New content height in screen coordinates
+SKA_API void ska_window_set_content_size(ska_window_t* ref_window, int32_t width, int32_t height);
+
+// Get window content size.
+// Returns the size of the content area (excludes title bar and borders).
 // This is the logical size, not the physical pixel size.
 //
 // @param window Window handle
-// @param opt_out_width Output width in screen coordinates (can be NULL)
-// @param opt_out_height Output height in screen coordinates (can be NULL)
-SKA_API void ska_window_get_size(const ska_window_t* window, int32_t* opt_out_width, int32_t* opt_out_height);
+// @param opt_out_width Output content width (can be NULL)
+// @param opt_out_height Output content height (can be NULL)
+SKA_API void ska_window_get_content_size(const ska_window_t* window, int32_t* opt_out_width, int32_t* opt_out_height);
 
-// Get window drawable size in pixels (may differ from screen size on high-DPI).
+// Get window drawable size in pixels (may differ from content size on high-DPI).
 // Use this for framebuffer/viewport sizing in rendering code.
-// On standard DPI displays, this equals ska_window_get_size().
-// On high-DPI displays (Retina, etc), this is typically 2x the window size.
+// On standard DPI displays, this equals ska_window_get_content_size().
+// On high-DPI displays (Retina, etc), this is typically 2x the content size.
 //
 // @param ref_window Window handle
 // @param opt_out_width Output width in pixels (can be NULL)
 // @param opt_out_height Output height in pixels (can be NULL)
 SKA_API void ska_window_get_drawable_size(ska_window_t* ref_window, int32_t* opt_out_width, int32_t* opt_out_height);
+
+// Get the DPI scale factor for a window.
+// Returns the OS-level UI scaling factor (e.g., 1.0 for 100%, 1.5 for 150%, 2.0 for 200%).
+// This is useful for scaling UI elements like fonts to match the user's display preferences.
+// Note: This is different from DisplayFramebufferScale which handles pixel density.
+//
+// Platform behavior:
+// - Linux X11: Reads Xft.dpi from Xresources, falls back to 96 DPI as baseline
+// - Win32: Uses GetDpiForWindow() or GetDpiForMonitor(), baseline is 96 DPI
+// - macOS: Returns 1.0 (macOS handles scaling transparently via backingScaleFactor)
+// - Android: Uses display density from configuration
+//
+// @param window Window handle
+// @return DPI scale factor (1.0 = 100% scale, 1.5 = 150%, etc.), returns 1.0 on error
+SKA_API float ska_window_get_dpi_scale(const ska_window_t* window);
 
 // Show window.
 // Maps the window to the display. Generates ska_event_window_shown.
@@ -284,6 +341,7 @@ typedef enum ska_event_ {
 	ska_event_window_focus_gained,
 	ska_event_window_focus_lost,
 	ska_event_window_close,
+	ska_event_window_dpi_changed, // DPI/scale factor changed (e.g., moved to different monitor)
 
 	// Keyboard events
 	ska_event_key_down,
@@ -398,6 +456,11 @@ typedef enum ska_mouse_button_ {
 } ska_mouse_button_;
 
 // Event structures
+//
+// Window event data interpretation by event type:
+// - ska_event_window_resized:    data1 = new width,  data2 = new height
+// - ska_event_window_moved:      data1 = new x,      data2 = new y
+// - ska_event_window_dpi_changed: data1 = new scale percentage (e.g., 150 = 1.5x)
 typedef struct ska_event_window_t {
 	ska_window_id_t   window_id;
 	int32_t           data1;

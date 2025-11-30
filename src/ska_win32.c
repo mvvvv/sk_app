@@ -174,6 +174,11 @@ static uint16_t ska_win32_get_modifiers(void) {
 static HCURSOR g_current_cursor = NULL;
 static HCURSOR g_win32_cursors[ska_system_cursor_count_] = {0};
 
+// GetDpiForWindow is only available on Windows 10 1607+
+typedef UINT (WINAPI *PFN_GetDpiForWindow)(HWND);
+static PFN_GetDpiForWindow g_pfnGetDpiForWindow = NULL;
+static bool                g_dpi_func_loaded    = false;
+
 static LRESULT CALLBACK ska_win32_window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 	ska_window_t* window = ska_find_window_by_hwnd(hwnd);
 	if (!window && msg != WM_CREATE) {
@@ -460,6 +465,33 @@ static LRESULT CALLBACK ska_win32_window_proc(HWND hwnd, UINT msg, WPARAM wparam
 				return TRUE;
 			}
 			break;
+
+		case WM_DPICHANGED: {
+			if (window) {
+				// wparam contains new DPI: LOWORD = X DPI, HIWORD = Y DPI
+				UINT  new_dpi   = LOWORD(wparam);
+				float new_scale = (float)new_dpi / 96.0f;
+
+				// Only fire event if scale actually changed
+				if (new_scale != window->dpi_scale) {
+					window->dpi_scale = new_scale;
+
+					event.type             = ska_event_window_dpi_changed;
+					event.window.window_id = window->id;
+					event.window.data1     = (int32_t)(new_scale * 100.0f + 0.5f); // Scale as percentage
+					ska_post_event(&event);
+				}
+
+				// Windows provides a suggested new window rect in lparam
+				RECT* suggested_rect = (RECT*)lparam;
+				SetWindowPos(window->hwnd, NULL,
+					suggested_rect->left, suggested_rect->top,
+					suggested_rect->right  - suggested_rect->left,
+					suggested_rect->bottom - suggested_rect->top,
+					SWP_NOZORDER | SWP_NOACTIVATE);
+			}
+			return 0;
+		}
 	}
 
 	return DefWindowProcW(hwnd, msg, wparam, lparam);
@@ -569,6 +601,9 @@ bool ska_platform_window_create(
 	// Store title
 	window->title = strdup(title);
 
+	// Initialize DPI scale (before WM_DPICHANGED can fire)
+	window->dpi_scale = ska_platform_get_dpi_scale(window);
+
 	// Get actual window position and size
 	RECT client_rect;
 	GetClientRect(window->hwnd, &client_rect);
@@ -615,21 +650,50 @@ void ska_platform_window_set_title(ska_window_t* window, const char* title) {
 	window->title = strdup(title);
 }
 
-void ska_platform_window_set_position(ska_window_t* window, int32_t x, int32_t y) {
-	SetWindowPos(window->hwnd, NULL, x, y, 0, 0,
-				 SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+void ska_platform_get_frame_extents(const ska_window_t* window, int32_t* out_left, int32_t* out_right, int32_t* out_top, int32_t* out_bottom) {
+	int32_t left = 0, right = 0, top = 0, bottom = 0;
+
+	if (window && window->hwnd) {
+		DWORD style    = GetWindowLong(window->hwnd, GWL_STYLE);
+		DWORD ex_style = GetWindowLong(window->hwnd, GWL_EXSTYLE);
+
+		// Use a zero rect to calculate just the frame sizes
+		RECT rect = {0, 0, 0, 0};
+		AdjustWindowRectEx(&rect, style, FALSE, ex_style);
+
+		left   = -rect.left;
+		right  = rect.right;
+		top    = -rect.top;
+		bottom = rect.bottom;
+	}
+
+	if (out_left)   *out_left   = left;
+	if (out_right)  *out_right  = right;
+	if (out_top)    *out_top    = top;
+	if (out_bottom) *out_bottom = bottom;
 }
 
-void ska_platform_window_set_size(ska_window_t* window, int32_t w, int32_t h) {
-	DWORD style = GetWindowLong(window->hwnd, GWL_STYLE);
+void ska_platform_window_set_frame_position(ska_window_t* window, int32_t x, int32_t y) {
+	SetWindowPos(window->hwnd, NULL, x, y, 0, 0,
+	             SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+
+	// Update cached content position
+	int32_t left, top;
+	ska_platform_get_frame_extents(window, &left, NULL, &top, NULL);
+	window->x = x + left;
+	window->y = y + top;
+}
+
+void ska_platform_window_set_frame_size(ska_window_t* window, int32_t w, int32_t h) {
+	DWORD style    = GetWindowLong(window->hwnd, GWL_STYLE);
 	DWORD ex_style = GetWindowLong(window->hwnd, GWL_EXSTYLE);
 
-	RECT rect = { 0, 0, w, h };
+	RECT rect = {0, 0, w, h};
 	AdjustWindowRectEx(&rect, style, FALSE, ex_style);
 
 	SetWindowPos(window->hwnd, NULL, 0, 0,
-				 rect.right - rect.left, rect.bottom - rect.top,
-				 SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+	             rect.right - rect.left, rect.bottom - rect.top,
+	             SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 void ska_platform_window_show(ska_window_t* window) {
@@ -665,6 +729,36 @@ void ska_platform_window_get_drawable_size(ska_window_t* window, int32_t* opt_ou
 	window->drawable_height = window->height;
 	(void)opt_out_width;
 	(void)opt_out_height;
+}
+
+float ska_platform_get_dpi_scale(const ska_window_t* window) {
+	// Try to use GetDpiForWindow (Windows 10 1607+)
+	if (!g_dpi_func_loaded) {
+		g_dpi_func_loaded = true;
+		HMODULE user32 = GetModuleHandleW(L"user32.dll");
+		if (user32) {
+			g_pfnGetDpiForWindow = (PFN_GetDpiForWindow)(void(*)(void))GetProcAddress(user32, "GetDpiForWindow");
+		}
+	}
+
+	if (g_pfnGetDpiForWindow && window && window->hwnd) {
+		UINT dpi = g_pfnGetDpiForWindow(window->hwnd);
+		if (dpi > 0) {
+			return (float)dpi / 96.0f; // 96 DPI is the baseline (100% scale)
+		}
+	}
+
+	// Fallback: use device caps (less accurate for per-monitor DPI)
+	HDC hdc = GetDC(NULL);
+	if (hdc) {
+		int32_t dpi = GetDeviceCaps(hdc, LOGPIXELSX);
+		ReleaseDC(NULL, hdc);
+		if (dpi > 0) {
+			return (float)dpi / 96.0f;
+		}
+	}
+
+	return 1.0f;
 }
 
 void ska_platform_warp_mouse(ska_window_t* window, int32_t x, int32_t y) {

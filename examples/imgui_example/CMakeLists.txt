@@ -7,33 +7,21 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(FetchContent)
 
-message(STATUS "Fetching sk_renderer for ImGui example...")
 
 # Disable sk_renderer's example app and shader compiler to avoid build complexity
 set(SKR_BUILD_EXAMPLES OFF CACHE BOOL "Disable sk_renderer examples" FORCE)
 set(SKR_BUILD_SKSHADERC OFF CACHE BOOL "Disable shader compilation" FORCE)
-
+message(STATUS "Fetching sk_renderer...")
 FetchContent_Declare(
 	sk_renderer
 	GIT_REPOSITORY https://github.com/StereoKit/sk_renderer.git
-	GIT_TAG        54b2b66d3f1230f1a73f95eabebb78dc653a02b9
-	#GIT_SHALLOW    TRUE
+	GIT_TAG        8ad5f21f5ca76e474139aaf169859587acd803a0
+	#GIT_SHALLOW   TRUE
 )
-
 FetchContent_MakeAvailable(sk_renderer)
-message(STATUS "sk_renderer available")
-
-# Dear ImGui C++ library
-FetchContent_Declare(
-	imgui
-	GIT_REPOSITORY https://github.com/ocornut/imgui.git
-	GIT_TAG        v1.91.6
-	GIT_SHALLOW    TRUE
-)
-FetchContent_MakeAvailable(imgui)
-message(STATUS "Dear ImGui fetched")
 
 # cimgui C bindings for ImGui
+message(STATUS "Fetching Dear ImGui...")
 FetchContent_Declare(
 	cimgui
 	GIT_REPOSITORY https://github.com/cimgui/cimgui.git
@@ -41,7 +29,6 @@ FetchContent_Declare(
 	GIT_SHALLOW    TRUE
 )
 FetchContent_MakeAvailable(cimgui)
-message(STATUS "cimgui fetched")
 
 # Build the imgui example
 if(SKA_PLATFORM STREQUAL "ANDROID")
@@ -61,11 +48,11 @@ endif()
 target_sources(imgui_example PRIVATE
 	${sk_renderer_SOURCE_DIR}/example/imgui_backend/imgui_impl_sk_renderer.cpp
 	imgui_impl_sk_app.cpp
-	${imgui_SOURCE_DIR}/imgui.cpp
-	${imgui_SOURCE_DIR}/imgui_draw.cpp
-	${imgui_SOURCE_DIR}/imgui_tables.cpp
-	${imgui_SOURCE_DIR}/imgui_widgets.cpp
-	${imgui_SOURCE_DIR}/imgui_demo.cpp
+	${cimgui_SOURCE_DIR}/imgui/imgui.cpp
+	${cimgui_SOURCE_DIR}/imgui/imgui_draw.cpp
+	${cimgui_SOURCE_DIR}/imgui/imgui_tables.cpp
+	${cimgui_SOURCE_DIR}/imgui/imgui_widgets.cpp
+	${cimgui_SOURCE_DIR}/imgui/imgui_demo.cpp
 	${cimgui_SOURCE_DIR}/cimgui.cpp
 )
 
@@ -73,7 +60,6 @@ target_link_libraries(imgui_example PRIVATE sk_app sk_renderer)
 
 # Include directories
 target_include_directories(imgui_example PRIVATE
-	${imgui_SOURCE_DIR}
 	${cimgui_SOURCE_DIR}
 	${sk_renderer_SOURCE_DIR}/example/imgui_backend
 )
