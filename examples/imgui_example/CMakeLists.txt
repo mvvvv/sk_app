@@ -61,6 +61,7 @@ target_link_libraries(imgui_example PRIVATE sk_app sk_renderer)
 # Include directories
 target_include_directories(imgui_example PRIVATE
 	${cimgui_SOURCE_DIR}
+	${cimgui_SOURCE_DIR}/imgui
 	${sk_renderer_SOURCE_DIR}/example/imgui_backend
 )
 
