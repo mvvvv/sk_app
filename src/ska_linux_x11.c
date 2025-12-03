@@ -134,15 +134,6 @@ static ska_window_t* ska_find_window_by_xwindow(Window xwin) {
 	return NULL;
 }
 
-static uint16_t ska_x11_get_modifiers(uint32_t state) {
-	uint16_t mods = 0;
-	if (state & ShiftMask) mods |= ska_keymod_shift;
-	if (state & ControlMask) mods |= ska_keymod_ctrl;
-	if (state & Mod1Mask) mods |= ska_keymod_alt;
-	if (state & Mod4Mask) mods |= ska_keymod_gui;
-	return mods;
-}
-
 bool ska_platform_init(void) {
 	// Set locale for X11
 	setlocale(LC_ALL, "");
@@ -637,13 +628,22 @@ void ska_platform_pump_events(void) {
 				event.keyboard.pressed = (xev.type == KeyPress);
 				event.keyboard.repeat = false; // X11 sends release+press for repeats
 				event.keyboard.scancode = ska_x11_scancode_table[xev.xkey.keycode];
-				event.keyboard.modifiers = ska_x11_get_modifiers(xev.xkey.state);
 
-				// Update input state
+				// Update keyboard state FIRST (before deriving modifiers)
 				if (event.keyboard.scancode != ska_scancode_unknown) {
 					g_ska.input_state.keyboard[event.keyboard.scancode] = event.keyboard.pressed ? 1 : 0;
 				}
-				g_ska.input_state.key_modifiers = event.keyboard.modifiers;
+
+				// Derive modifier state from tracked keyboard state (post-event).
+				// This matches Win32's GetKeyState() behavior and avoids X11's quirk
+				// where xkey.state contains pre-event modifier state.
+				uint16_t mods = 0;
+				if (g_ska.input_state.keyboard[ska_scancode_lshift] || g_ska.input_state.keyboard[ska_scancode_rshift]) mods |= ska_keymod_shift;
+				if (g_ska.input_state.keyboard[ska_scancode_lctrl]  || g_ska.input_state.keyboard[ska_scancode_rctrl])  mods |= ska_keymod_ctrl;
+				if (g_ska.input_state.keyboard[ska_scancode_lalt]   || g_ska.input_state.keyboard[ska_scancode_ralt])   mods |= ska_keymod_alt;
+				if (g_ska.input_state.keyboard[ska_scancode_lgui]   || g_ska.input_state.keyboard[ska_scancode_rgui])   mods |= ska_keymod_gui;
+				event.keyboard.modifiers = mods;
+				g_ska.input_state.key_modifiers = mods;
 
 				ska_post_event(&event);
 
