@@ -1073,9 +1073,9 @@ static void* ska_android_user_main_thread(void* arg) {
 
 // ========== Clipboard Platform Functions ==========
 
-size_t ska_platform_clipboard_get_text(char* opt_out_buffer, size_t buffer_size) {
+char* ska_platform_clipboard_get_text(void) {
 	if (!g_ska.android_app) {
-		return 0;
+		return NULL;
 	}
 
 	JNIEnv* env;
@@ -1093,7 +1093,7 @@ size_t ska_platform_clipboard_get_text(char* opt_out_buffer, size_t buffer_size)
 
 	if (!clipboard_manager) {
 		(*jvm)->DetachCurrentThread(jvm);
-		return 0;
+		return NULL;
 	}
 
 	// Check if clipboard has text
@@ -1104,7 +1104,7 @@ size_t ska_platform_clipboard_get_text(char* opt_out_buffer, size_t buffer_size)
 
 	if (!has_clip) {
 		(*jvm)->DetachCurrentThread(jvm);
-		return 0;
+		return NULL;
 	}
 
 	// Get primary clip
@@ -1114,7 +1114,7 @@ size_t ska_platform_clipboard_get_text(char* opt_out_buffer, size_t buffer_size)
 
 	if (!clip_data) {
 		(*jvm)->DetachCurrentThread(jvm);
-		return 0;
+		return NULL;
 	}
 
 	// Get first item
@@ -1125,7 +1125,7 @@ size_t ska_platform_clipboard_get_text(char* opt_out_buffer, size_t buffer_size)
 
 	if (!clip_item) {
 		(*jvm)->DetachCurrentThread(jvm);
-		return 0;
+		return NULL;
 	}
 
 	// Get text from item
@@ -1136,7 +1136,7 @@ size_t ska_platform_clipboard_get_text(char* opt_out_buffer, size_t buffer_size)
 
 	if (!char_sequence) {
 		(*jvm)->DetachCurrentThread(jvm);
-		return 0;
+		return NULL;
 	}
 
 	// Convert CharSequence to String
@@ -1147,30 +1147,27 @@ size_t ska_platform_clipboard_get_text(char* opt_out_buffer, size_t buffer_size)
 
 	if (!text_string) {
 		(*jvm)->DetachCurrentThread(jvm);
-		return 0;
+		return NULL;
 	}
 
 	// Convert to UTF-8
 	const char* utf8_text = (*env)->GetStringUTFChars(env, text_string, NULL);
 	if (!utf8_text) {
 		(*jvm)->DetachCurrentThread(jvm);
-		return 0;
+		return NULL;
 	}
 
-	// Calculate size including null terminator
-	size_t text_size = strlen(utf8_text) + 1;
-
-	// If buffer is provided, copy the text
-	if (opt_out_buffer && buffer_size > 0) {
-		size_t copy_size = (text_size < buffer_size) ? text_size : buffer_size;
-		memcpy(opt_out_buffer, utf8_text, copy_size - 1);
-		opt_out_buffer[copy_size - 1] = '\0';
+	// Allocate and copy the text
+	size_t len = strlen(utf8_text);
+	char* result = (char*)malloc(len + 1);
+	if (result) {
+		memcpy(result, utf8_text, len + 1);
 	}
 
 	(*env)->ReleaseStringUTFChars(env, text_string, utf8_text);
 	(*jvm)->DetachCurrentThread(jvm);
 
-	return text_size;
+	return result;
 }
 
 bool ska_platform_clipboard_set_text(const char* text) {

@@ -835,14 +835,11 @@ SKA_API size_t ska_file_size(const char* filename);
 // Clipboard Support
 // ============================================================================
 
-// Get clipboard text size and optionally copy the text.
-// Two-call idiom: Call once with NULL buffer to get size, then call again with buffer.
-// Size includes null terminator. Returns 0 if clipboard is empty or unavailable.
+// Get clipboard text. Returned string is malloc'd and must be freed by the caller.
+// Returns NULL if clipboard is empty or unavailable.
 //
-// @param opt_out_buffer Buffer to copy clipboard text to (can be NULL to query size only)
-// @param buffer_size Size of the buffer in bytes (ignored if opt_out_buffer is NULL)
-// @return Size of clipboard text in bytes (including null terminator), or 0 if empty/unavailable
-SKA_API size_t ska_clipboard_get_text(char* opt_out_buffer, size_t buffer_size);
+// @return Allocated UTF-8 string (caller must free), or NULL if empty/unavailable
+SKA_API char* ska_clipboard_get_text(void);
 
 // Set clipboard text.
 // Copies the provided text to the system clipboard. Text must be null-terminated UTF-8.

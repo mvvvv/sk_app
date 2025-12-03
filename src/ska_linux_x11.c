@@ -977,14 +977,14 @@ void ska_platform_show_virtual_keyboard(bool visible, ska_text_input_type_ type)
 
 // ========== Clipboard Platform Functions ==========
 
-size_t ska_platform_clipboard_get_text(char* opt_out_buffer, size_t buffer_size) {
+char* ska_platform_clipboard_get_text(void) {
 	if (!g_ska.x_display) {
-		return 0;
+		return NULL;
 	}
 
-	Atom clipboard_atom = XInternAtom(g_ska.x_display, "CLIPBOARD", False);
-	Atom utf8_atom = XInternAtom(g_ska.x_display, "UTF8_STRING", False);
-	Atom property_atom = XInternAtom(g_ska.x_display, "XSEL_DATA", False);
+	Atom clipboard_atom = XInternAtom(g_ska.x_display, "CLIPBOARD",   False);
+	Atom utf8_atom      = XInternAtom(g_ska.x_display, "UTF8_STRING", False);
+	Atom property_atom  = XInternAtom(g_ska.x_display, "XSEL_DATA",   False);
 
 	// Find a window to use for selection requests (use first available window)
 	Window window = None;
@@ -994,12 +994,40 @@ size_t ska_platform_clipboard_get_text(char* opt_out_buffer, size_t buffer_size)
 			break;
 		}
 	}
+	if (window == None) return NULL;
 
-	if (window == None) {
-		return 0;
+	// Check if we own the clipboard - if so, read directly from our stored data
+	// to avoid a deadlock where we'd be waiting for ourselves to respond
+	Window owner = XGetSelectionOwner(g_ska.x_display, clipboard_atom);
+	if (owner == window) {
+		Atom data_property = XInternAtom(g_ska.x_display, "SKA_CLIPBOARD_DATA", False);
+		Atom actual_type;
+		int32_t actual_format;
+		unsigned long nitems, bytes_after;
+		unsigned char* data = NULL;
+
+		int32_t result = XGetWindowProperty(
+			g_ska.x_display, window, data_property,
+			0, 0x1FFFFFFF, False, AnyPropertyType,
+			&actual_type, &actual_format, &nitems, &bytes_after, &data
+		);
+
+		if (result != Success || !data || nitems == 0) {
+			if (data) XFree(data);
+			return NULL;
+		}
+
+		char* text = (char*)malloc(nitems + 1);
+		if (text) {
+			memcpy(text, data, nitems);
+			text[nitems] = '\0';
+		}
+
+		XFree(data);
+		return text;
 	}
 
-	// Request clipboard content
+	// Request clipboard content from external owner
 	XConvertSelection(g_ska.x_display, clipboard_atom, utf8_atom, property_atom, window, CurrentTime);
 	XFlush(g_ska.x_display);
 
@@ -1018,7 +1046,7 @@ size_t ska_platform_clipboard_get_text(char* opt_out_buffer, size_t buffer_size)
 	}
 
 	if (!received || event.xselection.property == None) {
-		return 0;
+		return NULL;
 	}
 
 	// Get the property data
@@ -1036,23 +1064,19 @@ size_t ska_platform_clipboard_get_text(char* opt_out_buffer, size_t buffer_size)
 	if (result != Success || !data || nitems == 0) {
 		if (data) XFree(data);
 		XDeleteProperty(g_ska.x_display, window, property_atom);
-		return 0;
+		return NULL;
 	}
 
-	// Calculate size including null terminator
-	size_t text_size = nitems + 1;
-
-	// If buffer is provided, copy the text
-	if (opt_out_buffer && buffer_size > 0) {
-		size_t copy_size = (text_size < buffer_size) ? text_size : buffer_size;
-		memcpy(opt_out_buffer, data, copy_size - 1);
-		opt_out_buffer[copy_size - 1] = '\0';
+	char* text = (char*)malloc(nitems + 1);
+	if (text) {
+		memcpy(text, data, nitems);
+		text[nitems] = '\0';
 	}
 
 	XFree(data);
 	XDeleteProperty(g_ska.x_display, window, property_atom);
 
-	return text_size;
+	return text;
 }
 
 bool ska_platform_clipboard_set_text(const char* text) {

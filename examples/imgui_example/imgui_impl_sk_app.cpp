@@ -248,30 +248,15 @@ bool ImGui_ImplSkApp_Init(ska_window_t* window)
 
 	io.GetClipboardTextFn = [](void*) -> const char* {
 		static char* clipboard_buffer = nullptr;
-		static size_t clipboard_buffer_size = 0;
 
-		// Get size first
-		size_t text_size = ska_clipboard_get_text(nullptr, 0);
-		if (text_size == 0) {
-			return "";
+		// Free previous buffer
+		if (clipboard_buffer) {
+			free(clipboard_buffer);
 		}
 
-		// Allocate buffer if needed
-		if (text_size > clipboard_buffer_size) {
-			if (clipboard_buffer) {
-				free(clipboard_buffer);
-			}
-			clipboard_buffer = (char*)malloc(text_size);
-			clipboard_buffer_size = text_size;
-		}
-
-		if (!clipboard_buffer) {
-			return "";
-		}
-
-		// Get the actual text
-		ska_clipboard_get_text(clipboard_buffer, clipboard_buffer_size);
-		return clipboard_buffer;
+		// Get clipboard text (returns malloc'd string)
+		clipboard_buffer = ska_clipboard_get_text();
+		return clipboard_buffer ? clipboard_buffer : "";
 	};
 
 	// NOTE: IME and mouse cursor shape are NOT YET IMPLEMENTED

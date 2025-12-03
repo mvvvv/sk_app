@@ -151,6 +151,7 @@ int32_t main(int argc, char** argv) {
 	ImVec4 clear_color = {0.1f, 0.1f, 0.2f, 1.0f};
 	float f = 0.0f;
 	int32_t counter = 0;
+	static char text_buffer[4096] = "Test copy/paste here.\nTry Ctrl+C, Ctrl+V, Ctrl+X, Ctrl+A.\n\nMultiple lines supported.";
 
 	// Main rendering loop
 	uint32_t frame   = 0;
@@ -223,6 +224,11 @@ int32_t main(int argc, char** argv) {
 
 			igText("Application average %.3f ms/frame (%.1f FPS)",
 				   1000.0f / io->Framerate, io->Framerate);
+
+			igSeparator();
+			igText("Clipboard Test:");
+			igInputTextMultiline("##clipboard_test", text_buffer, sizeof(text_buffer),
+				(ImVec2){-1, 100}, ImGuiInputTextFlags_AllowTabInput, NULL, NULL);
 
 			igEnd();
 		}

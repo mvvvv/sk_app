@@ -923,44 +923,29 @@ void ska_platform_show_virtual_keyboard(bool visible, ska_text_input_type_ type)
 
 // ========== Clipboard Platform Functions ==========
 
-size_t ska_platform_clipboard_get_text(char* opt_out_buffer, size_t buffer_size) {
+char* ska_platform_clipboard_get_text(void) {
 	if (!OpenClipboard(NULL)) {
-		return 0;
+		return NULL;
 	}
 
 	HANDLE hdata = GetClipboardData(CF_UNICODETEXT);
 	if (!hdata) {
 		CloseClipboard();
-		return 0;
+		return NULL;
 	}
 
 	wchar_t* wide_text = (wchar_t*)GlobalLock(hdata);
 	if (!wide_text) {
 		CloseClipboard();
-		return 0;
+		return NULL;
 	}
 
-	// Convert to UTF-8
+	// Convert to UTF-8 (ska_wide_to_utf8 returns malloc'd string)
 	char* utf8_text = ska_wide_to_utf8(wide_text);
 	GlobalUnlock(hdata);
 	CloseClipboard();
 
-	if (!utf8_text) {
-		return 0;
-	}
-
-	// Calculate size including null terminator
-	size_t text_size = strlen(utf8_text) + 1;
-
-	// If buffer is provided, copy the text
-	if (opt_out_buffer && buffer_size > 0) {
-		size_t copy_size = (text_size < buffer_size) ? text_size : buffer_size;
-		memcpy(opt_out_buffer, utf8_text, copy_size - 1);
-		opt_out_buffer[copy_size - 1] = '\0';
-	}
-
-	ska_free_string(utf8_text);
-	return text_size;
+	return utf8_text;
 }
 
 bool ska_platform_clipboard_set_text(const char* text) {

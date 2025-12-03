@@ -538,8 +538,8 @@ SKA_API void ska_time_sleep(uint32_t ms) {
 // Clipboard Support
 // ============================================================================
 
-SKA_API size_t ska_clipboard_get_text(char* opt_out_buffer, size_t buffer_size) {
-	return ska_platform_clipboard_get_text(opt_out_buffer, buffer_size);
+SKA_API char* ska_clipboard_get_text(void) {
+	return ska_platform_clipboard_get_text();
 }
 
 SKA_API bool ska_clipboard_set_text(const char* text) {

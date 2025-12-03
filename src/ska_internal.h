@@ -313,8 +313,8 @@ const char** ska_platform_vk_get_instance_extensions(uint32_t* out_count);
 bool         ska_platform_vk_create_surface         (const ska_window_t* window, VkInstance instance, VkSurfaceKHR* out_surface);
 
 // Clipboard support
-size_t ska_platform_clipboard_get_text(char* opt_out_buffer, size_t buffer_size);
-bool   ska_platform_clipboard_set_text(const char* text);
+char* ska_platform_clipboard_get_text(void);
+bool  ska_platform_clipboard_set_text(const char* text);
 
 // Utility functions
 uint64_t ska_get_time_ns(void);
