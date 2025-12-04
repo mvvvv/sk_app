@@ -245,6 +245,16 @@ bool ska_platform_window_create(
 	XStoreName(g_ska.x_display, window->xwindow, title);
 	XSetIconName(g_ska.x_display, window->xwindow, title);
 
+	// Set WM_CLASS for desktop file matching (important for Wayland icon support)
+	// The res_name should match StartupWMClass in the .desktop file
+	XClassHint* class_hint = XAllocClassHint();
+	if (class_hint) {
+		class_hint->res_name = (char*)title;   // Instance name
+		class_hint->res_class = (char*)title;  // Class name
+		XSetClassHint(g_ska.x_display, window->xwindow, class_hint);
+		XFree(class_hint);
+	}
+
 	// Set WM protocols
 	XSetWMProtocols(g_ska.x_display, window->xwindow, &g_ska.wm_delete_window, 1);
 
