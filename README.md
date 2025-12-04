@@ -96,10 +96,10 @@ adb shell am start -n com.example.ska.simple_window/android.app.NativeActivity
 
 ```sh
 # Filtered logcat of the app
-adb logcat -v color --uid `adb shell pm list package -U com.example.ska.simple_window | cut -d ":" -f3`
+adb logcat -v color --uid `adb shell pm list package -U net.stereokit.simple_window | cut -d ":" -f3`
 ```
 
-### Available commands:
+### Available commands
 
    ESC       - Exit application
    T         - Show virtual keyboard
