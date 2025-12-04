@@ -16,113 +16,82 @@
 // Scancode translation table (X11 keycodes to ska_scancode_)
 static ska_scancode_ ska_x11_scancode_table[256];
 
+// Map KeySym to scancode (layout-independent)
+static ska_scancode_ ska_keysym_to_scancode(KeySym keysym) {
+	// Letters (uppercase and lowercase)
+	if (keysym >= XK_a && keysym <= XK_z) {
+		return ska_scancode_a + (keysym - XK_a);
+	}
+	if (keysym >= XK_A && keysym <= XK_Z) {
+		return ska_scancode_a + (keysym - XK_A);
+	}
+
+	// Numbers
+	if (keysym >= XK_1 && keysym <= XK_9) {
+		return ska_scancode_1 + (keysym - XK_1);
+	}
+	if (keysym == XK_0) return ska_scancode_0;
+
+	// Function keys
+	if (keysym >= XK_F1 && keysym <= XK_F12) {
+		return ska_scancode_f1 + (keysym - XK_F1);
+	}
+
+	// Special keys
+	switch (keysym) {
+		case XK_Return: return ska_scancode_return;
+		case XK_Escape: return ska_scancode_escape;
+		case XK_BackSpace: return ska_scancode_backspace;
+		case XK_Tab: return ska_scancode_tab;
+		case XK_space: return ska_scancode_space;
+		case XK_minus: return ska_scancode_minus;
+		case XK_equal: return ska_scancode_equals;
+		case XK_bracketleft: return ska_scancode_leftbracket;
+		case XK_bracketright: return ska_scancode_rightbracket;
+		case XK_backslash: return ska_scancode_backslash;
+		case XK_semicolon: return ska_scancode_semicolon;
+		case XK_apostrophe: return ska_scancode_apostrophe;
+		case XK_grave: return ska_scancode_grave;
+		case XK_comma: return ska_scancode_comma;
+		case XK_period: return ska_scancode_period;
+		case XK_slash: return ska_scancode_slash;
+		case XK_Caps_Lock: return ska_scancode_capslock;
+
+		// Navigation
+		case XK_Print: return ska_scancode_printscreen;
+		case XK_Scroll_Lock: return ska_scancode_scrolllock;
+		case XK_Pause: return ska_scancode_pause;
+		case XK_Insert: return ska_scancode_insert;
+		case XK_Home: return ska_scancode_home;
+		case XK_Page_Up: return ska_scancode_pageup;
+		case XK_Delete: return ska_scancode_delete;
+		case XK_End: return ska_scancode_end;
+		case XK_Page_Down: return ska_scancode_pagedown;
+		case XK_Right: return ska_scancode_right;
+		case XK_Left: return ska_scancode_left;
+		case XK_Down: return ska_scancode_down;
+		case XK_Up: return ska_scancode_up;
+
+		// Modifiers
+		case XK_Control_L: return ska_scancode_lctrl;
+		case XK_Shift_L: return ska_scancode_lshift;
+		case XK_Alt_L: return ska_scancode_lalt;
+		case XK_Super_L: return ska_scancode_lgui;
+		case XK_Control_R: return ska_scancode_rctrl;
+		case XK_Shift_R: return ska_scancode_rshift;
+		case XK_Alt_R: return ska_scancode_ralt;
+		case XK_Super_R: return ska_scancode_rgui;
+
+		default: return ska_scancode_unknown;
+	}
+}
+
 static void ska_init_scancode_table(void) {
-	// Initialize all to unknown
+	// Initialize all to unknown - the table is now populated dynamically
+	// based on KeySyms during event processing for layout independence
 	for (int32_t i = 0; i < 256; i++) {
 		ska_x11_scancode_table[i] = ska_scancode_unknown;
 	}
-
-	// Letters
-	ska_x11_scancode_table[38] = ska_scancode_a;
-	ska_x11_scancode_table[56] = ska_scancode_b;
-	ska_x11_scancode_table[54] = ska_scancode_c;
-	ska_x11_scancode_table[40] = ska_scancode_d;
-	ska_x11_scancode_table[26] = ska_scancode_e;
-	ska_x11_scancode_table[41] = ska_scancode_f;
-	ska_x11_scancode_table[42] = ska_scancode_g;
-	ska_x11_scancode_table[43] = ska_scancode_h;
-	ska_x11_scancode_table[31] = ska_scancode_i;
-	ska_x11_scancode_table[44] = ska_scancode_j;
-	ska_x11_scancode_table[45] = ska_scancode_k;
-	ska_x11_scancode_table[46] = ska_scancode_l;
-	ska_x11_scancode_table[58] = ska_scancode_m;
-	ska_x11_scancode_table[57] = ska_scancode_n;
-	ska_x11_scancode_table[32] = ska_scancode_o;
-	ska_x11_scancode_table[33] = ska_scancode_p;
-	ska_x11_scancode_table[24] = ska_scancode_q;
-	ska_x11_scancode_table[27] = ska_scancode_r;
-	ska_x11_scancode_table[39] = ska_scancode_s;
-	ska_x11_scancode_table[28] = ska_scancode_t;
-	ska_x11_scancode_table[30] = ska_scancode_u;
-	ska_x11_scancode_table[55] = ska_scancode_v;
-	ska_x11_scancode_table[25] = ska_scancode_w;
-	ska_x11_scancode_table[53] = ska_scancode_x;
-	ska_x11_scancode_table[29] = ska_scancode_y;
-	ska_x11_scancode_table[52] = ska_scancode_z;
-
-	// Numbers
-	ska_x11_scancode_table[10] = ska_scancode_1;
-	ska_x11_scancode_table[11] = ska_scancode_2;
-	ska_x11_scancode_table[12] = ska_scancode_3;
-	ska_x11_scancode_table[13] = ska_scancode_4;
-	ska_x11_scancode_table[14] = ska_scancode_5;
-	ska_x11_scancode_table[15] = ska_scancode_6;
-	ska_x11_scancode_table[16] = ska_scancode_7;
-	ska_x11_scancode_table[17] = ska_scancode_8;
-	ska_x11_scancode_table[18] = ska_scancode_9;
-	ska_x11_scancode_table[19] = ska_scancode_0;
-
-	// Function keys
-	ska_x11_scancode_table[36] = ska_scancode_return;
-	ska_x11_scancode_table[9] = ska_scancode_escape;
-	ska_x11_scancode_table[22] = ska_scancode_backspace;
-	ska_x11_scancode_table[23] = ska_scancode_tab;
-	ska_x11_scancode_table[65] = ska_scancode_space;
-
-	// Symbols
-	ska_x11_scancode_table[20] = ska_scancode_minus;
-	ska_x11_scancode_table[21] = ska_scancode_equals;
-	ska_x11_scancode_table[34] = ska_scancode_leftbracket;
-	ska_x11_scancode_table[35] = ska_scancode_rightbracket;
-	ska_x11_scancode_table[51] = ska_scancode_backslash;
-	ska_x11_scancode_table[47] = ska_scancode_semicolon;
-	ska_x11_scancode_table[48] = ska_scancode_apostrophe;
-	ska_x11_scancode_table[49] = ska_scancode_grave;
-	ska_x11_scancode_table[59] = ska_scancode_comma;
-	ska_x11_scancode_table[60] = ska_scancode_period;
-	ska_x11_scancode_table[61] = ska_scancode_slash;
-
-	ska_x11_scancode_table[66] = ska_scancode_capslock;
-
-	// F keys
-	ska_x11_scancode_table[67] = ska_scancode_f1;
-	ska_x11_scancode_table[68] = ska_scancode_f2;
-	ska_x11_scancode_table[69] = ska_scancode_f3;
-	ska_x11_scancode_table[70] = ska_scancode_f4;
-	ska_x11_scancode_table[71] = ska_scancode_f5;
-	ska_x11_scancode_table[72] = ska_scancode_f6;
-	ska_x11_scancode_table[73] = ska_scancode_f7;
-	ska_x11_scancode_table[74] = ska_scancode_f8;
-	ska_x11_scancode_table[75] = ska_scancode_f9;
-	ska_x11_scancode_table[76] = ska_scancode_f10;
-	ska_x11_scancode_table[95] = ska_scancode_f11;
-	ska_x11_scancode_table[96] = ska_scancode_f12;
-
-	ska_x11_scancode_table[107] = ska_scancode_printscreen;
-	ska_x11_scancode_table[78] = ska_scancode_scrolllock;
-	ska_x11_scancode_table[127] = ska_scancode_pause;
-	ska_x11_scancode_table[118] = ska_scancode_insert;
-
-	// Navigation
-	ska_x11_scancode_table[110] = ska_scancode_home;
-	ska_x11_scancode_table[112] = ska_scancode_pageup;
-	ska_x11_scancode_table[119] = ska_scancode_delete;
-	ska_x11_scancode_table[115] = ska_scancode_end;
-	ska_x11_scancode_table[117] = ska_scancode_pagedown;
-	ska_x11_scancode_table[114] = ska_scancode_right;
-	ska_x11_scancode_table[113] = ska_scancode_left;
-	ska_x11_scancode_table[116] = ska_scancode_down;
-	ska_x11_scancode_table[111] = ska_scancode_up;
-
-	// Modifiers
-	ska_x11_scancode_table[37] = ska_scancode_lctrl;
-	ska_x11_scancode_table[50] = ska_scancode_lshift;
-	ska_x11_scancode_table[64] = ska_scancode_lalt;
-	ska_x11_scancode_table[133] = ska_scancode_lgui;
-	ska_x11_scancode_table[105] = ska_scancode_rctrl;
-	ska_x11_scancode_table[62] = ska_scancode_rshift;
-	ska_x11_scancode_table[108] = ska_scancode_ralt;
-	ska_x11_scancode_table[134] = ska_scancode_rgui;
 }
 
 static ska_window_t* ska_find_window_by_xwindow(Window xwin) {
@@ -425,13 +394,37 @@ void ska_platform_window_minimize(ska_window_t* window) {
 }
 
 void ska_platform_window_restore(ska_window_t* window) {
+	// First, remove maximize state if window is maximized
+	XEvent event = {0};
+	event.type = ClientMessage;
+	event.xclient.window = window->xwindow;
+	event.xclient.message_type = g_ska.net_wm_state;
+	event.xclient.format = 32;
+	event.xclient.data.l[0] = 0; // _NET_WM_STATE_REMOVE
+	event.xclient.data.l[1] = g_ska.net_wm_state_maximized_vert;
+	event.xclient.data.l[2] = g_ska.net_wm_state_maximized_horz;
+
+	XSendEvent(g_ska.x_display, g_ska.x_root, False,
+			   SubstructureNotifyMask | SubstructureRedirectMask, &event);
+
+	// Then ensure window is mapped (in case it was minimized)
 	XMapWindow(g_ska.x_display, window->xwindow);
 	XFlush(g_ska.x_display);
 }
 
 void ska_platform_window_raise(ska_window_t* window) {
 	XRaiseWindow(g_ska.x_display, window->xwindow);
-	XSetInputFocus(g_ska.x_display, window->xwindow, RevertToParent, CurrentTime);
+	// Only set focus if window is visible and actually mapped
+	if (window->is_visible) {
+		// Sync and verify the window is actually mapped before setting focus
+		XSync(g_ska.x_display, False);
+
+		XWindowAttributes attrs;
+		if (XGetWindowAttributes(g_ska.x_display, window->xwindow, &attrs) &&
+		    attrs.map_state == IsViewable) {
+			XSetInputFocus(g_ska.x_display, window->xwindow, RevertToPointerRoot, CurrentTime);
+		}
+	}
 	XFlush(g_ska.x_display);
 }
 
@@ -631,50 +624,56 @@ void ska_platform_pump_events(void) {
 		event.timestamp = (uint32_t)ska_time_get_elapsed_ms();
 
 		switch (xev.type) {
-			case KeyPress:
-			case KeyRelease: {
-				event.type = (xev.type == KeyPress) ? ska_event_key_down : ska_event_key_up;
-				event.keyboard.window_id = window->id;
-				event.keyboard.pressed = (xev.type == KeyPress);
-				event.keyboard.repeat = false; // X11 sends release+press for repeats
-				event.keyboard.scancode = ska_x11_scancode_table[xev.xkey.keycode];
+		case KeyPress:
+		case KeyRelease: {
+			event.type = (xev.type == KeyPress) ? ska_event_key_down : ska_event_key_up;
+			event.keyboard.window_id = window->id;
+			event.keyboard.pressed = (xev.type == KeyPress);
+			event.keyboard.repeat = false; // X11 sends release+press for repeats
 
-				// Update keyboard state FIRST (before deriving modifiers)
-				if (event.keyboard.scancode != ska_scancode_unknown) {
-					g_ska.input_state.keyboard[event.keyboard.scancode] = event.keyboard.pressed ? 1 : 0;
-				}
+			// Convert keycode to KeySym for layout-independent mapping
+			KeySym keysym = XLookupKeysym(&xev.xkey, 0);
+			event.keyboard.scancode = ska_keysym_to_scancode(keysym);
 
-				// Derive modifier state from tracked keyboard state (post-event).
-				// This matches Win32's GetKeyState() behavior and avoids X11's quirk
-				// where xkey.state contains pre-event modifier state.
-				uint16_t mods = 0;
-				if (g_ska.input_state.keyboard[ska_scancode_lshift] || g_ska.input_state.keyboard[ska_scancode_rshift]) mods |= ska_keymod_shift;
-				if (g_ska.input_state.keyboard[ska_scancode_lctrl]  || g_ska.input_state.keyboard[ska_scancode_rctrl])  mods |= ska_keymod_ctrl;
-				if (g_ska.input_state.keyboard[ska_scancode_lalt]   || g_ska.input_state.keyboard[ska_scancode_ralt])   mods |= ska_keymod_alt;
-				if (g_ska.input_state.keyboard[ska_scancode_lgui]   || g_ska.input_state.keyboard[ska_scancode_rgui])   mods |= ska_keymod_gui;
-				event.keyboard.modifiers = mods;
-				g_ska.input_state.key_modifiers = mods;
-
-				ska_post_event(&event);
-
-				// Handle text input
-				if (xev.type == KeyPress && window->xic) {
-					char buffer[32];
-					KeySym keysym;
-					Status status;
-					int32_t len = Xutf8LookupString(window->xic, &xev.xkey, buffer, sizeof(buffer) - 1, &keysym, &status);
-					if (len > 0 && (status == XLookupChars || status == XLookupBoth)) {
-						buffer[len] = '\0';
-						event.type = ska_event_text_input;
-						event.text.window_id = window->id;
-						strncpy(event.text.text, buffer, sizeof(event.text.text) - 1);
-						ska_post_event(&event);
-					}
-				}
-				break;
+			// Cache the scancode in the table for faster lookups
+			if (event.keyboard.scancode != ska_scancode_unknown) {
+				ska_x11_scancode_table[xev.xkey.keycode] = event.keyboard.scancode;
 			}
 
-			case ButtonPress:
+			// Update keyboard state FIRST (before deriving modifiers)
+			if (event.keyboard.scancode != ska_scancode_unknown) {
+				g_ska.input_state.keyboard[event.keyboard.scancode] = event.keyboard.pressed ? 1 : 0;
+			}
+
+			// Derive modifier state from tracked keyboard state (post-event).
+			// This matches Win32's GetKeyState() behavior and avoids X11's quirk
+			// where xkey.state contains pre-event modifier state.
+			uint16_t mods = 0;
+			if (g_ska.input_state.keyboard[ska_scancode_lshift] || g_ska.input_state.keyboard[ska_scancode_rshift]) mods |= ska_keymod_shift;
+			if (g_ska.input_state.keyboard[ska_scancode_lctrl]  || g_ska.input_state.keyboard[ska_scancode_rctrl])  mods |= ska_keymod_ctrl;
+			if (g_ska.input_state.keyboard[ska_scancode_lalt]   || g_ska.input_state.keyboard[ska_scancode_ralt])   mods |= ska_keymod_alt;
+			if (g_ska.input_state.keyboard[ska_scancode_lgui]   || g_ska.input_state.keyboard[ska_scancode_rgui])   mods |= ska_keymod_gui;
+			event.keyboard.modifiers = mods;
+			g_ska.input_state.key_modifiers = mods;
+
+			ska_post_event(&event);
+
+			// Handle text input
+			if (xev.type == KeyPress && window->xic) {
+				char buffer[32];
+				KeySym keysym_text;
+				Status status;
+				int32_t len = Xutf8LookupString(window->xic, &xev.xkey, buffer, sizeof(buffer) - 1, &keysym_text, &status);
+				if (len > 0 && (status == XLookupChars || status == XLookupBoth)) {
+					buffer[len] = '\0';
+					event.type = ska_event_text_input;
+					event.text.window_id = window->id;
+					strncpy(event.text.text, buffer, sizeof(event.text.text) - 1);
+					ska_post_event(&event);
+				}
+			}
+			break;
+		}			case ButtonPress:
 			case ButtonRelease: {
 				if (xev.xbutton.button >= Button4 && xev.xbutton.button <= 7) {
 					// Mouse wheel (vertical: Button4/Button5, horizontal: Button6/Button7)
@@ -964,7 +963,13 @@ bool ska_platform_vk_create_surface(const ska_window_t* window, VkInstance insta
 		return false;
 	}
 
-	PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)dlsym(module, "vkGetInstanceProcAddr");
+	union {
+		void* obj;
+		PFN_vkGetInstanceProcAddr func;
+	} vkGetInstanceProcAddr_ptr;
+
+	vkGetInstanceProcAddr_ptr.obj = dlsym(module, "vkGetInstanceProcAddr");
+	PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr = vkGetInstanceProcAddr_ptr.func;
 	if (!vkGetInstanceProcAddr) {
 		ska_set_error("Failed to load vkGetInstanceProcAddr");
 		return false;
@@ -1057,8 +1062,8 @@ char* ska_platform_clipboard_get_text(void) {
 	// Wait for SelectionNotify event with timeout
 	XEvent event;
 	bool received = false;
-	const int32_t timeout_ms = 500;
-	const int32_t start_time = ska_time_get_elapsed_ms();
+	const uint64_t timeout_ms = 500;
+	const uint64_t start_time = ska_time_get_elapsed_ms();
 
 	while (ska_time_get_elapsed_ms() - start_time < timeout_ms) {
 		if (XCheckTypedWindowEvent(g_ska.x_display, window, SelectionNotify, &event)) {

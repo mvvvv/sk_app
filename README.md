@@ -16,49 +16,102 @@ cmake -B build
 cmake --build build -j8
 
 # To run
-./build/examples/simple_window
+./build/examples/simple_window/simple_window
 ```
 
 ### Windows (Cross-compile with MinGW)
 
-```sh
-# To configure a Windows build
-cmake -B build-win -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++
+```bash
+# To configure
+cmake -B build-mingw -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-toolchain.cmake -DCMAKE_BUILD_TYPE=Release
 
 # To build
-cmake --build build-win -j8
+cmake --build build-mingw -j8
 
 # To run with Wine
-wine ./build-win/examples/simple_window.exe
+wine ./build-mingw/examples/simple_window/simple_window.exe
 ```
 
 ### Android
 
+Prerequisites:
+
+- ANDROID_HOME or ANDROID_SDK_ROOT environment variable set
+- ANDROID_NDK environment variable (optional - auto-detected from SDK)
+- Java JDK installed for signing APKs
+
 ```sh
-# Prerequisites:
-# - ANDROID_HOME or ANDROID_SDK_ROOT environment variable set
-# - ANDROID_NDK environment variable (optional - auto-detected from SDK)
-# - Java JDK installed for signing APKs
-
-# Quick build (uses convenience script)
+# Quick build for arm64 (default)
 ./build_android.sh
+# Install and run on connected device or simulator
+cmake --build build-android --target simple_window-run
+```
 
-# Manual build
+```sh
+# OR x86_64
+./build_android.sh x86
+# Install and run on connected device or simulator
+cmake --build build-androidx86 --target simple_window-run
+```
+
+#### Android manual build
+
+```sh
+# arm64 (default)
 cmake -B build-android \
     -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake \
     -DANDROID_ABI=arm64-v8a \
     -DANDROID_PLATFORM=android-32 \
     -DCMAKE_BUILD_TYPE=Release
-
 cmake --build build-android -j8
-
 # Build the APK
 cmake --build build-android --target simple_window-apk
-
-# Install and run on device
+# Install and run on connected device or simulator
 adb install -r build-android/examples/simple_window.apk
 adb shell am start -n com.example.ska.simple_window/android.app.NativeActivity
-
-# Or use the convenience target
-cmake --build build-android --target simple_window-run
 ```
+
+```sh
+# OR x86_64
+cmake -B build-androidx86 \
+    -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake \
+    -DANDROID_ABI=x86_64 \
+    -DANDROID_PLATFORM=android-32 \
+    -DCMAKE_BUILD_TYPE=Release
+cmake --build build-androidx86 -j8
+# Build the APK
+cmake --build build-androidx86 --target simple_window-apk
+# Install and run on connected device or simulator
+adb install -r build-androidx86/examples/simple_window/simple_window.apk
+adb shell am start -n com.example.ska.simple_window/android.app.NativeActivity
+```
+
+```sh
+# Install and run on connected device or simulator
+adb install -r build-android/examples/simple_window/simple_window.apk
+adb shell am start -n com.example.ska.simple_window/android.app.NativeActivity
+```
+
+#### Filtering Android logcat
+
+```sh
+# Filtered logcat of the app
+adb logcat -v color --uid `adb shell pm list package -U net.stereokit.simple_window | cut -d ":" -f3`
+```
+
+### Available commands
+
+   ESC       - Exit application
+   T         - Show virtual keyboard
+   M         - Maximize window
+   N         - Minimize window
+   R         - Restore window
+   H         - Hide window (2 seconds)
+   P         - Set window position
+   S         - Set window size
+   SPACE     - Rename window title
+   C         - Toggle cursor visibility
+   V         - Toggle relative mouse mode
+   W         - Warp mouse to center
+   Mouse     - Move and click
+   Wheel     - Scroll
