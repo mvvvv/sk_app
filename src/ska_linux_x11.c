@@ -701,14 +701,27 @@ void ska_platform_pump_events(void) {
 					// Mouse button
 					event.type = (xev.type == ButtonPress) ? ska_event_mouse_button_down : ska_event_mouse_button_up;
 					event.mouse_button.window_id = window->id;
-					event.mouse_button.button = xev.xbutton.button;
+
+					// Map X11 button numbers to ska_mouse_button_ values
+					// X11: 1-3 = left/middle/right, 8-9 = back/forward (side buttons)
+					// ska: 1-3 = left/middle/right, 4-5 = x1/x2 (side buttons)
+					ska_mouse_button_ button;
+					switch (xev.xbutton.button) {
+						case Button1: button = ska_mouse_button_left;   break;
+						case Button2: button = ska_mouse_button_middle; break;
+						case Button3: button = ska_mouse_button_right;  break;
+						case 8:       button = ska_mouse_button_x1;     break; // Back
+						case 9:       button = ska_mouse_button_x2;     break; // Forward
+						default:      button = xev.xbutton.button;      break;
+					}
+					event.mouse_button.button = button;
 					event.mouse_button.pressed = (xev.type == ButtonPress);
 					event.mouse_button.clicks = 1;
 					event.mouse_button.x = xev.xbutton.x;
 					event.mouse_button.y = xev.xbutton.y;
 
 					// Update button state
-					uint32_t button_mask = (1 << (xev.xbutton.button - 1));
+					uint32_t button_mask = (1 << (button - 1));
 					if (event.mouse_button.pressed) {
 						g_ska.input_state.mouse_buttons |= button_mask;
 					} else {
