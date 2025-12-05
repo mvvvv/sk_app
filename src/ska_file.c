@@ -185,3 +185,81 @@ SKA_API size_t ska_file_size(const char* filename) {
 	return (size_t)st.st_size;
 #endif
 }
+
+// ============================================================================
+// Asset I/O Implementation (non-Android)
+// ============================================================================
+
+#ifndef SKA_PLATFORM_ANDROID
+
+SKA_API bool ska_asset_read(const char* asset_name, void** out_data, size_t* out_size) {
+	if (!asset_name) {
+		ska_set_error("ska_asset_read: NULL asset_name");
+		return false;
+	}
+
+	if (!out_data) {
+		ska_set_error("ska_asset_read: NULL out_data");
+		return false;
+	}
+
+	// Build path: try "assets/" first, then "Assets/"
+	size_t name_len = strlen(asset_name);
+	char* path = (char*)malloc(8 + name_len + 1);  // "assets/" or "Assets/" + name + null
+	if (!path) {
+		ska_set_error("ska_asset_read: Failed to allocate path buffer");
+		return false;
+	}
+
+	// Try "assets/" first
+	snprintf(path, 8 + name_len + 1, "assets/%s", asset_name);
+	if (ska_file_exists(path)) {
+		bool result = ska_file_read(path, out_data, out_size);
+		free(path);
+		return result;
+	}
+
+	// Try "Assets/" (common on some platforms)
+	snprintf(path, 8 + name_len + 1, "Assets/%s", asset_name);
+	if (ska_file_exists(path)) {
+		bool result = ska_file_read(path, out_data, out_size);
+		free(path);
+		return result;
+	}
+
+	ska_set_error("ska_asset_read: Asset '%s' not found in assets/ or Assets/", asset_name);
+	free(path);
+	return false;
+}
+
+SKA_API bool ska_asset_read_text(const char* asset_name, char** out_text) {
+	if (!asset_name) {
+		ska_set_error("ska_asset_read_text: NULL asset_name");
+		return false;
+	}
+
+	if (!out_text) {
+		ska_set_error("ska_asset_read_text: NULL out_text");
+		return false;
+	}
+
+	size_t file_size = 0;
+	void* data = NULL;
+	if (!ska_asset_read(asset_name, &data, &file_size)) {
+		return false;
+	}
+
+	// Allocate +1 for null terminator
+	char* text = (char*)realloc(data, file_size + 1);
+	if (!text) {
+		ska_set_error("ska_asset_read_text: Failed to allocate null terminator");
+		free(data);
+		return false;
+	}
+
+	text[file_size] = '\0';
+	*out_text = text;
+	return true;
+}
+
+#endif // !SKA_PLATFORM_ANDROID

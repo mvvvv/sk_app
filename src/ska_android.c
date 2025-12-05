@@ -9,6 +9,7 @@
 #include <android/native_window.h>
 #include <android/input.h>
 #include <android/keycodes.h>
+#include <android/asset_manager.h>
 #include <dlfcn.h>
 #include <unistd.h>
 
@@ -1269,6 +1270,93 @@ void android_main(struct android_app* app) {
 		// Small sleep to avoid busy-waiting
 		ska_time_sleep(1);
 	}
+}
+
+// ========== Asset I/O (Android) ==========
+
+SKA_API bool ska_asset_read(const char* asset_name, void** out_data, size_t* out_size) {
+	if (!asset_name) {
+		ska_set_error("ska_asset_read: NULL asset_name");
+		return false;
+	}
+
+	if (!out_data) {
+		ska_set_error("ska_asset_read: NULL out_data");
+		return false;
+	}
+
+	if (!g_ska.android_app || !g_ska.android_app->activity || !g_ska.android_app->activity->assetManager) {
+		ska_set_error("ska_asset_read: AAssetManager not available");
+		return false;
+	}
+
+	AAssetManager* asset_manager = g_ska.android_app->activity->assetManager;
+
+	AAsset* asset = AAssetManager_open(asset_manager, asset_name, AASSET_MODE_BUFFER);
+	if (!asset) {
+		ska_set_error("ska_asset_read: Failed to open asset '%s'", asset_name);
+		return false;
+	}
+
+	off_t asset_length = AAsset_getLength(asset);
+	if (asset_length < 0) {
+		ska_set_error("ska_asset_read: Failed to get asset length for '%s'", asset_name);
+		AAsset_close(asset);
+		return false;
+	}
+
+	void* data = malloc((size_t)asset_length);
+	if (!data) {
+		ska_set_error("ska_asset_read: Failed to allocate %ld bytes", (long)asset_length);
+		AAsset_close(asset);
+		return false;
+	}
+
+	int bytes_read = AAsset_read(asset, data, (size_t)asset_length);
+	AAsset_close(asset);
+
+	if (bytes_read != asset_length) {
+		ska_set_error("ska_asset_read: Read %d bytes, expected %ld", bytes_read, (long)asset_length);
+		free(data);
+		return false;
+	}
+
+	*out_data = data;
+	if (out_size) {
+		*out_size = (size_t)asset_length;
+	}
+
+	return true;
+}
+
+SKA_API bool ska_asset_read_text(const char* asset_name, char** out_text) {
+	if (!asset_name) {
+		ska_set_error("ska_asset_read_text: NULL asset_name");
+		return false;
+	}
+
+	if (!out_text) {
+		ska_set_error("ska_asset_read_text: NULL out_text");
+		return false;
+	}
+
+	size_t file_size = 0;
+	void* data = NULL;
+	if (!ska_asset_read(asset_name, &data, &file_size)) {
+		return false;
+	}
+
+	// Allocate +1 for null terminator
+	char* text = (char*)realloc(data, file_size + 1);
+	if (!text) {
+		ska_set_error("ska_asset_read_text: Failed to allocate null terminator");
+		free(data);
+		return false;
+	}
+
+	text[file_size] = '\0';
+	*out_text = text;
+	return true;
 }
 
 #endif // SKA_PLATFORM_ANDROID

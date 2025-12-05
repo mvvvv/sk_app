@@ -792,6 +792,26 @@ SKA_API bool ska_file_read(const char* filename, void** out_data, size_t* out_si
 // @return true on success, false on failure (check ska_error_get())
 SKA_API bool ska_file_read_text(const char* filename, char** out_text);
 
+// Read asset file into memory.
+// On Android: Uses AAssetManager to read from APK assets folder.
+// On other platforms: Looks for file in "assets/" or "Assets/" folder relative to executable.
+// Allocates buffer with malloc(); caller must free with ska_file_free_data().
+//
+// @param asset_name Asset path relative to assets folder (UTF-8), e.g. "shaders/vert.spv"
+// @param out_data Output pointer to file data (required, not NULL), receives malloc'd buffer
+// @param out_size Output size in bytes (can be NULL if you don't need size)
+// @return true on success, false on failure (check ska_error_get())
+SKA_API bool ska_asset_read(const char* asset_name, void** out_data, size_t* out_size);
+
+// Read asset file into a null-terminated string.
+// Calls ska_asset_read() then reallocs to add '\0' terminator.
+// Caller must free the returned string with ska_file_free_data().
+//
+// @param asset_name Asset path relative to assets folder (UTF-8)
+// @param out_text Output pointer to null-terminated string (required, not NULL)
+// @return true on success, false on failure (check ska_error_get())
+SKA_API bool ska_asset_read_text(const char* asset_name, char** out_text);
+
 // Write data to file.
 // Binary mode (no newline translation). Creates or truncates file.
 // If size is 0, creates empty file (data can be NULL in this case).
