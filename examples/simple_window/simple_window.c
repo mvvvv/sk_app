@@ -25,6 +25,25 @@ int32_t main(int argc, char** argv) {
 	ska_log(ska_log_info, "");
 
 // ========================================================================
+// WORKING DIRECTORY
+// ========================================================================
+
+	char cwd[1024];
+	if (ska_get_cwd(cwd, sizeof(cwd))) {
+		ska_log(ska_log_info, "[CWD] Initial: %s", cwd);
+	}
+
+	if (ska_set_cwd(NULL)) {
+		ska_log(ska_log_info, "[CWD] Set to executable directory");
+		if (ska_get_cwd(cwd, sizeof(cwd))) {
+			ska_log(ska_log_info, "[CWD] New: %s", cwd);
+		}
+	} else {
+		ska_log(ska_log_warn, "[CWD] Failed to set: %s", ska_error_get());
+	}
+	ska_log(ska_log_info, "");
+
+// ========================================================================
 // INITIALIZATION
 // ========================================================================
 

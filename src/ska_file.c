@@ -10,11 +10,21 @@
 #include <io.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <direct.h>
 #define access _access
 #define F_OK 0
 #else
 #include <unistd.h>
 #include <sys/stat.h>
+#endif
+
+#ifdef SKA_PLATFORM_MACOS
+#include <mach-o/dyld.h>
+#endif
+
+#include <limits.h>
+#ifndef PATH_MAX
+#define PATH_MAX 4096
 #endif
 
 // ============================================================================
@@ -184,6 +194,129 @@ SKA_API size_t ska_file_size(const char* filename) {
 	}
 	return (size_t)st.st_size;
 #endif
+}
+
+// ============================================================================
+// Working Directory
+// ============================================================================
+
+SKA_API bool ska_get_cwd(char* ref_buffer, size_t buffer_size) {
+	if (!ref_buffer || buffer_size == 0) {
+		ska_set_error("ska_get_cwd: Invalid buffer");
+		return false;
+	}
+
+	ref_buffer[0] = '\0';
+
+#ifdef SKA_PLATFORM_WIN32
+	if (_getcwd(ref_buffer, (int)buffer_size) == NULL) {
+		ska_set_error("ska_get_cwd: _getcwd failed");
+		return false;
+	}
+#else
+	if (getcwd(ref_buffer, buffer_size) == NULL) {
+		ska_set_error("ska_get_cwd: getcwd failed");
+		return false;
+	}
+#endif
+
+	return true;
+}
+
+// Helper: Get directory portion of a path (modifies buffer in-place)
+static void ska_path_get_directory(char* path) {
+	if (!path || path[0] == '\0') return;
+
+	// Find last separator
+	char* last_sep = NULL;
+	for (char* p = path; *p; p++) {
+		if (*p == '/' || *p == '\\') {
+			last_sep = p;
+		}
+	}
+
+	if (last_sep) {
+		*last_sep = '\0';
+	} else {
+		// No separator found, use current directory
+		path[0] = '.';
+		path[1] = '\0';
+	}
+}
+
+// Helper: Get executable path
+static bool ska_get_executable_path(char* ref_buffer, size_t buffer_size) {
+	if (!ref_buffer || buffer_size == 0) return false;
+
+	ref_buffer[0] = '\0';
+
+#if defined(SKA_PLATFORM_WIN32)
+	// Windows: GetModuleFileNameA
+	DWORD len = GetModuleFileNameA(NULL, ref_buffer, (DWORD)buffer_size);
+	if (len == 0 || len >= buffer_size) {
+		return false;
+	}
+	return true;
+
+#elif defined(SKA_PLATFORM_LINUX)
+	// Linux: readlink /proc/self/exe
+	ssize_t len = readlink("/proc/self/exe", ref_buffer, buffer_size - 1);
+	if (len < 0 || (size_t)len >= buffer_size) {
+		return false;
+	}
+	ref_buffer[len] = '\0';
+	return true;
+
+#elif defined(SKA_PLATFORM_MACOS)
+	// macOS: _NSGetExecutablePath
+	uint32_t size = (uint32_t)buffer_size;
+	if (_NSGetExecutablePath(ref_buffer, &size) != 0) {
+		return false;
+	}
+	return true;
+
+#elif defined(SKA_PLATFORM_ANDROID)
+	// Android: No meaningful executable path
+	return false;
+
+#else
+	return false;
+#endif
+}
+
+SKA_API bool ska_set_cwd(const char* opt_path) {
+#ifdef SKA_PLATFORM_ANDROID
+	ska_set_error("ska_set_cwd: Not supported on Android");
+	return false;
+#else
+
+	char path_buffer[PATH_MAX];
+
+	if (opt_path == NULL) {
+		// Get executable directory
+		if (!ska_get_executable_path(path_buffer, sizeof(path_buffer))) {
+			ska_set_error("ska_set_cwd: Failed to get executable path");
+			return false;
+		}
+		ska_path_get_directory(path_buffer);
+		opt_path = path_buffer;
+	}
+
+#ifdef SKA_PLATFORM_WIN32
+	if (_chdir(opt_path) != 0) {
+		ska_set_error("ska_set_cwd: _chdir failed for '%s'", opt_path);
+		return false;
+	}
+#else
+	if (chdir(opt_path) != 0) {
+		ska_set_error("ska_set_cwd: chdir failed for '%s'", opt_path);
+		return false;
+	}
+#endif
+
+	return true;
+
+#endif // !SKA_PLATFORM_ANDROID
 }
 
 // ============================================================================

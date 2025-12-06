@@ -851,6 +851,22 @@ SKA_API bool ska_file_exists(const char* filename);
 // @return File size in bytes, or 0 on failure (ambiguous with empty file)
 SKA_API size_t ska_file_size(const char* filename);
 
+// Get current working directory.
+// Writes the path to ref_buffer (null-terminated). On failure, ref_buffer[0] is set to '\0'.
+//
+// @param ref_buffer Buffer to receive the path (UTF-8)
+// @param buffer_size Size of buffer in bytes (should include space for null terminator)
+// @return true on success, false on failure (check ska_error_get())
+SKA_API bool ska_get_cwd(char* ref_buffer, size_t buffer_size);
+
+// Set current working directory.
+// If path is NULL, sets the working directory to the executable's directory.
+// On Android, this function always fails (Android apps don't have traditional working directories).
+//
+// @param opt_path Directory path (UTF-8), or NULL to use executable's directory
+// @return true on success, false on failure (check ska_error_get())
+SKA_API bool ska_set_cwd(const char* opt_path);
+
 // ============================================================================
 // Clipboard Support
 // ============================================================================
