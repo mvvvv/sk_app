@@ -16,8 +16,18 @@
 #include <string.h>
 
 int32_t main(int argc, char** argv) {
-	(void)argc;
-	(void)argv;
+	// Parse command line arguments
+	int32_t test_frames = 0;  // 0 = disabled, >0 = exit after N frames
+	for (int32_t i = 1; i < argc; i++) {
+		if (strcmp(argv[i], "-test") == 0 || strcmp(argv[i], "--test") == 0) {
+			test_frames = 10;  // Default: exit after 10 frames
+		} else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+			printf("Usage: %s [options]\n", argv[0]);
+			printf("  -test, --test   Run in test mode (exit after 10 frames)\n");
+			printf("  -h, --help      Show this help\n");
+			return 0;
+		}
+	}
 
 	ska_log(ska_log_info, "sk_app Comprehensive API Example");
 	ska_log(ska_log_info, "=================================");
@@ -429,6 +439,12 @@ int32_t main(int argc, char** argv) {
 		// Simulate frame timing - ~60 FPS
 		ska_time_sleep(16);
 		frame++;
+
+		// Test mode: exit after N frames
+		if (test_frames > 0 && frame >= (uint32_t)test_frames) {
+			ska_log(ska_log_info, "[TEST] Exiting after %d frames", test_frames);
+			running = false;
+		}
 	}
 
 // ========================================================================
