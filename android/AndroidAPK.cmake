@@ -1,5 +1,115 @@
 # Android APK Build Function for sk_app
 # Provides add_apk() function to build APK files from native libraries
+#
+# Functions:
+#   add_apk()              - Create APK build target from a shared library
+#   apk_add_java_sources() - Add Java source files to an APK target
+
+# apk_add_java_sources: Add Java source files to an APK target
+#
+# Usage:
+#   apk_add_java_sources(<target_name> <source_dir>
+#       <file1.java> [file2.java] ...
+#   )
+#
+# The Java files should be specified with their package-relative paths,
+# e.g., "net/stereokit/sk_app/SkAppActivity.java"
+#
+# Java sources are automatically compiled at the end of directory processing
+# via cmake_language(DEFER).
+function(apk_add_java_sources APK_TARGET JAVA_SOURCE_DIR)
+	if(NOT TARGET ${APK_TARGET}-apk)
+		message(FATAL_ERROR "apk_add_java_sources: ${APK_TARGET}-apk target not found. Call add_apk() first.")
+	endif()
+
+	# Get existing sources and append new ones
+	# Format: "source_dir:relative_path" for each source
+	get_target_property(EXISTING_SOURCES ${APK_TARGET}-apk APK_JAVA_SOURCES)
+	if(NOT EXISTING_SOURCES)
+		set(EXISTING_SOURCES "")
+	endif()
+
+	foreach(JAVA_REL_PATH ${ARGN})
+		list(APPEND EXISTING_SOURCES "${JAVA_SOURCE_DIR}:${JAVA_REL_PATH}")
+	endforeach()
+
+	set_target_properties(${APK_TARGET}-apk PROPERTIES APK_JAVA_SOURCES "${EXISTING_SOURCES}")
+endfunction()
+
+###############################################################################
+# Internal: Build classes.dex from Empty.class + any registered Java sources
+#
+# Called automatically at the end of directory processing via cmake_language(DEFER).
+###############################################################################
+function(_apk_build_dex APK_TARGET)
+	get_target_property(APK_BUILD_DIR ${APK_TARGET}-apk APK_BUILD_DIR)
+	get_target_property(APK_MIN_SDK ${APK_TARGET}-apk APK_MIN_SDK)
+	get_target_property(JAVA_SOURCES ${APK_TARGET}-apk APK_JAVA_SOURCES)
+
+	# Find Android SDK jar for compilation
+	set(ANDROID_JAR "${ANDROID_SDK_ROOT}/platforms/android-${APK_MIN_SDK}/android.jar")
+	if(NOT EXISTS "${ANDROID_JAR}")
+		set(ANDROID_JAR "${ANDROID_SDK_ROOT}/platforms/android-32/android.jar")
+	endif()
+
+	# Always start with Empty.class
+	set(DEX_INPUTS "${APK_BUILD_DIR}/obj/Empty.class")
+	set(DEX_DEPENDS "${APK_BUILD_DIR}/obj/Empty.class")
+
+	# Process additional Java sources if any
+	if(JAVA_SOURCES)
+		set(JAVA_SRC_FILES "")
+		set(JAVA_CLASS_FILES "")
+
+		foreach(SOURCE_ENTRY ${JAVA_SOURCES})
+			# Parse "source_dir:relative_path" format
+			string(REPLACE ":" ";" SOURCE_PARTS "${SOURCE_ENTRY}")
+			list(GET SOURCE_PARTS 0 SOURCE_DIR)
+			list(GET SOURCE_PARTS 1 REL_PATH)
+
+			# Copy source to build directory
+			get_filename_component(REL_DIR "${REL_PATH}" DIRECTORY)
+			file(MAKE_DIRECTORY "${APK_BUILD_DIR}/src/${REL_DIR}")
+			configure_file(
+				"${SOURCE_DIR}/${REL_PATH}"
+				"${APK_BUILD_DIR}/src/${REL_PATH}"
+				COPYONLY
+			)
+
+			list(APPEND JAVA_SRC_FILES "${APK_BUILD_DIR}/src/${REL_PATH}")
+
+			# Determine class file output path
+			string(REPLACE ".java" ".class" CLASS_PATH "${REL_PATH}")
+			list(APPEND JAVA_CLASS_FILES "${APK_BUILD_DIR}/obj/${CLASS_PATH}")
+		endforeach()
+
+		# Compile all additional Java sources
+		add_custom_command(
+			OUTPUT ${JAVA_CLASS_FILES}
+			DEPENDS ${JAVA_SRC_FILES}
+			COMMAND ${JAVAC}
+				-source 1.8 -target 1.8
+				-bootclasspath ${ANDROID_JAR}
+				-d ${APK_BUILD_DIR}/obj
+				-sourcepath ${APK_BUILD_DIR}/src
+				${JAVA_SRC_FILES}
+			COMMENT "Compiling Java sources for ${APK_TARGET}"
+			VERBATIM
+		)
+
+		list(APPEND DEX_INPUTS ${JAVA_CLASS_FILES})
+		list(APPEND DEX_DEPENDS ${JAVA_CLASS_FILES})
+	endif()
+
+	# Build classes.dex from all inputs
+	add_custom_command(
+		OUTPUT ${APK_BUILD_DIR}/obj/classes.dex
+		DEPENDS ${DEX_DEPENDS}
+		COMMAND ${D8} --lib ${ANDROID_JAR} --release --output ${APK_BUILD_DIR}/obj ${DEX_INPUTS}
+		COMMENT "Building classes.dex for ${APK_TARGET}"
+		VERBATIM
+	)
+endfunction()
 
 # add_apk: Create an APK build target from a shared library target
 #
@@ -18,6 +128,9 @@
 #   <target_name>-apk     - Build the APK
 #   <target_name>-install - Install APK to device via adb
 #   <target_name>-run     - Install and launch the app
+#
+# Java sources can be added via apk_add_java_sources() and are automatically
+# compiled at the end of directory processing.
 function(add_apk APK_TARGET)
 	# Parse remaining arguments
 	cmake_parse_arguments(APK
@@ -139,16 +252,16 @@ function(add_apk APK_TARGET)
 ")
 
 	###########################################################################
-	## Build Java boilerplate (minimal for NativeActivity)
+	## Compile Empty.java placeholder (DEX built later via _apk_build_dex)
 	###########################################################################
 
 	file(WRITE ${APK_BUILD_DIR}/src/android/Empty.java "public class Empty {}")
 	add_custom_command(
 		DEPENDS ${APK_BUILD_DIR}/src/android/Empty.java
-		OUTPUT  ${APK_BUILD_DIR}/obj/classes.dex
+		OUTPUT  ${APK_BUILD_DIR}/obj/Empty.class
 		COMMAND ${JAVAC} -d ${APK_BUILD_DIR}/obj -sourcepath src ${APK_BUILD_DIR}/src/android/Empty.java
-		COMMAND ${D8} --release ${APK_BUILD_DIR}/obj/Empty.class --output ${APK_BUILD_DIR}/obj
-		COMMENT "Building Java boilerplate for ${APK_TARGET}" )
+		COMMENT "Compiling Empty.java for ${APK_TARGET}"
+	)
 
 	###########################################################################
 	## Compile Android resources
@@ -241,10 +354,21 @@ function(add_apk APK_TARGET)
 		COMMAND ${ANDROID_SDK_ROOT}/platform-tools/adb shell am start -n ${APK_PACKAGE_NAME}/android.app.NativeActivity
 		COMMENT "Installing and running ${APK_TARGET}.apk")
 
-	# Set target properties for introspection
+	# Set target properties for introspection and _apk_build_dex
 	set_target_properties(${APK_TARGET}-apk PROPERTIES
 		APK_OUTPUT_PATH "${OUTPUT_APK}"
 		APK_PACKAGE_NAME "${APK_PACKAGE_NAME}"
+		APK_BUILD_DIR "${APK_BUILD_DIR}"
+		APK_MIN_SDK "${APK_MIN_SDK}"
 	)
+
+	# Defer DEX build to end of directory processing, allowing apk_add_java_sources()
+	# calls to accumulate before compilation.
+	# Note: EVAL CODE is needed to capture APK_TARGET by value (CMake DEFER quirk)
+	cmake_language(EVAL CODE "
+		cmake_language(DEFER
+			DIRECTORY [[${CMAKE_CURRENT_SOURCE_DIR}]]
+			ID _apk_dex_${APK_TARGET}
+			CALL _apk_build_dex [[${APK_TARGET}]])")
 
 endfunction()
