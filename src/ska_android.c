@@ -746,12 +746,12 @@ void ska_platform_window_set_frame_size(ska_window_t* window, int32_t w, int32_t
 void ska_platform_get_frame_extents(const ska_window_t* window, int32_t* out_left, int32_t* out_right, int32_t* out_top, int32_t* out_bottom) {
 	// In freeform/DEX mode, windows may have decorations (title bar, borders)
 	// We get these via getWindow().getDecorView() dimensions vs content view
-	*out_left   = 0;
-	*out_right  = 0;
-	*out_top    = 0;
-	*out_bottom = 0;
+	if (out_left)   *out_left   = 0;
+	if (out_right)  *out_right  = 0;
+	if (out_top)    *out_top    = 0;
+	if (out_bottom) *out_bottom = 0;
 
-	if (!g_jni_cache.env || !window->native_window) {
+	if (!g_jni_cache.env || !window || !window->native_window) {
 		return;
 	}
 
@@ -776,11 +776,12 @@ void ska_platform_get_frame_extents(const ska_window_t* window, int32_t* out_lef
 			int32_t total_v_diff = decor_height - content_height;
 
 			// Assume symmetric horizontal borders (if any)
-			*out_left   = total_h_diff / 2;
-			*out_right  = total_h_diff - *out_left;
+			int32_t left = total_h_diff / 2;
+			if (out_left)   *out_left   = left;
+			if (out_right)  *out_right  = total_h_diff - left;
 			// Title bar at top, no bottom border typically
-			*out_top    = total_v_diff;
-			*out_bottom = 0;
+			if (out_top)    *out_top    = total_v_diff;
+			if (out_bottom) *out_bottom = 0;
 
 			(*env)->DeleteLocalRef(env, decor_view);
 		}

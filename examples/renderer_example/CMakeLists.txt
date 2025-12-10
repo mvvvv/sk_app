@@ -35,7 +35,7 @@ set(SKR_BUILD_SKSHADERC OFF CACHE BOOL "Disable shader compilation" FORCE)
 FetchContent_Declare(
 	sk_renderer
 	GIT_REPOSITORY https://github.com/StereoKit/sk_renderer.git
-	GIT_TAG        413b1da4cac6d8df861594f9c717a09939b62ace
+	GIT_TAG        main
 	#GIT_SHALLOW    TRUE
 )
 FetchContent_MakeAvailable(sk_renderer)
