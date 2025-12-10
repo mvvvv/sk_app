@@ -585,6 +585,224 @@ SKA_API void ska_log(ska_log_ level, const char* fmt, ...) {
 }
 
 // ============================================================================
+// File Dialog
+// ============================================================================
+
+// Global file dialog state
+ska_file_dialog_state_t g_ska_file_dialog = {0};
+
+// MIME type to extension mapping for common types
+static const struct {
+	const char* mime;
+	const char* exts;
+} ska_mime_to_exts[] = {
+	{ "*/*",              "*" },
+	{ "image/*",          "*.png *.jpg *.jpeg *.gif *.bmp *.webp *.tiff *.ico" },
+	{ "image/png",        "*.png" },
+	{ "image/jpeg",       "*.jpg *.jpeg" },
+	{ "image/gif",        "*.gif" },
+	{ "image/bmp",        "*.bmp" },
+	{ "image/webp",       "*.webp" },
+	{ "text/*",           "*.txt *.md *.c *.h *.cpp *.hpp *.py *.js *.json *.xml *.html *.css" },
+	{ "text/plain",       "*.txt" },
+	{ "text/html",        "*.html *.htm" },
+	{ "text/css",         "*.css" },
+	{ "text/javascript",  "*.js" },
+	{ "text/markdown",    "*.md" },
+	{ "text/xml",         "*.xml" },
+	{ "application/json", "*.json" },
+	{ "application/pdf",  "*.pdf" },
+	{ "application/zip",  "*.zip" },
+	{ "audio/*",          "*.mp3 *.wav *.ogg *.flac *.aac *.m4a" },
+	{ "audio/mpeg",       "*.mp3" },
+	{ "audio/wav",        "*.wav" },
+	{ "audio/ogg",        "*.ogg" },
+	{ "video/*",          "*.mp4 *.avi *.mkv *.mov *.webm *.wmv" },
+	{ "video/mp4",        "*.mp4" },
+	{ "video/webm",       "*.webm" },
+	{ NULL, NULL }
+};
+
+const char* ska_filter_get_exts(const ska_file_filter_t* filter) {
+	if (!filter) return "*";
+
+	// If exts provided, use it directly
+	if (filter->exts && filter->exts[0]) {
+		return filter->exts;
+	}
+
+	// Try to translate MIME type to extensions
+	if (filter->mime && filter->mime[0]) {
+		for (int32_t i = 0; ska_mime_to_exts[i].mime != NULL; i++) {
+			if (strcmp(filter->mime, ska_mime_to_exts[i].mime) == 0) {
+				return ska_mime_to_exts[i].exts;
+			}
+		}
+	}
+
+	// Default: all files
+	return "*";
+}
+
+const char* ska_filter_get_mime(const ska_file_filter_t* filter) {
+	if (!filter) return "*/*";
+
+	// If mime provided, use it directly
+	if (filter->mime && filter->mime[0]) {
+		return filter->mime;
+	}
+
+	// Default: all files (we could try to reverse-translate from exts, but that's complex)
+	return "*/*";
+}
+
+ska_file_dialog_result_t* ska_file_dialog_result_alloc(ska_file_dialog_id_t id, const char* title) {
+	// Check for leaked results and warn
+	for (int32_t i = 0; i < g_ska_file_dialog.result_count; i++) {
+		if (!g_ska_file_dialog.results[i].freed) {
+			ska_log(ska_log_warn, "File dialog result '%s' (id=%u) was not freed before new dialog",
+			        g_ska_file_dialog.results[i].title ? g_ska_file_dialog.results[i].title : "(null)",
+			        g_ska_file_dialog.results[i].id);
+			g_ska_file_dialog.leaked_count++;
+		}
+	}
+
+	// Clear old results if we're at capacity
+	if (g_ska_file_dialog.result_count >= SKA_MAX_FILE_DIALOGS) {
+		// Free all old results
+		for (int32_t i = 0; i < g_ska_file_dialog.result_count; i++) {
+			ska_file_dialog_result_t* r = &g_ska_file_dialog.results[i];
+			if (r->title) free(r->title);
+			if (r->paths) {
+				for (int32_t j = 0; j < r->path_count; j++) {
+					if (r->paths[j]) free(r->paths[j]);
+				}
+				free(r->paths);
+			}
+		}
+		g_ska_file_dialog.result_count = 0;
+	}
+
+	ska_file_dialog_result_t* result = &g_ska_file_dialog.results[g_ska_file_dialog.result_count++];
+	memset(result, 0, sizeof(*result));
+	result->id = id;
+	result->title = title ? strdup(title) : NULL;
+	result->paths = NULL;
+	result->path_count = 0;
+	result->cancelled = false;
+	result->freed = false;
+
+	return result;
+}
+
+void ska_file_dialog_result_add_path(ska_file_dialog_result_t* result, const char* path) {
+	if (!result || !path) return;
+
+	if (result->path_count >= SKA_MAX_DIALOG_PATHS) {
+		ska_log(ska_log_warn, "File dialog path limit reached (%d)", SKA_MAX_DIALOG_PATHS);
+		return;
+	}
+
+	// Allocate or grow paths array
+	if (!result->paths) {
+		result->paths = (char**)calloc(SKA_MAX_DIALOG_PATHS, sizeof(char*));
+		if (!result->paths) return;
+	}
+
+	result->paths[result->path_count++] = strdup(path);
+}
+
+void ska_file_dialog_result_complete(ska_file_dialog_result_t* result, bool cancelled) {
+	if (!result) return;
+
+	result->cancelled = cancelled;
+	if (cancelled) {
+		result->path_count = 0;
+	}
+
+	// Post event
+	ska_event_t event = {0};
+	event.type = ska_event_file_dialog;
+	event.timestamp = ska_time_get_elapsed_ms();
+	event.file_dialog.id = result->id;
+	event.file_dialog.title = result->title;
+	event.file_dialog.cancelled = result->cancelled;
+	event.file_dialog.count = result->path_count;
+	event.file_dialog._internal = result;
+
+	ska_post_event(&event);
+}
+
+SKA_API bool ska_file_dialog_available(ska_file_dialog_ type) {
+	return ska_platform_file_dialog_available(type);
+}
+
+SKA_API ska_file_dialog_id_t ska_file_dialog_show(const ska_file_dialog_request_t* request) {
+	if (!request) {
+		ska_set_error("ska_file_dialog_show: request is NULL");
+		return 0;
+	}
+
+	if (!g_ska.initialized) {
+		ska_set_error("ska_file_dialog_show: sk_app not initialized");
+		return 0;
+	}
+
+	if (!ska_platform_file_dialog_available(request->type)) {
+		ska_set_error("ska_file_dialog_show: file dialog type %d not available on this platform", request->type);
+		return 0;
+	}
+
+	ska_file_dialog_id_t id = ++g_ska_file_dialog.next_id;
+	if (id == 0) id = ++g_ska_file_dialog.next_id; // Skip 0
+
+	if (!ska_platform_file_dialog_show(id, request)) {
+		return 0;
+	}
+
+	return id;
+}
+
+SKA_API const char* ska_file_dialog_get_path(const ska_event_file_dialog_t* result, int32_t index) {
+	if (!result || !result->_internal) return NULL;
+
+	ska_file_dialog_result_t* internal = (ska_file_dialog_result_t*)result->_internal;
+	if (index < 0 || index >= internal->path_count) return NULL;
+
+	return internal->paths[index];
+}
+
+SKA_API void ska_file_dialog_free_result(ska_event_file_dialog_t* ref_result) {
+	if (!ref_result || !ref_result->_internal) return;
+
+	ska_file_dialog_result_t* internal = (ska_file_dialog_result_t*)ref_result->_internal;
+	if (internal->freed) return; // Already freed
+
+	// Free paths
+	if (internal->paths) {
+		for (int32_t i = 0; i < internal->path_count; i++) {
+			if (internal->paths[i]) free(internal->paths[i]);
+		}
+		free(internal->paths);
+		internal->paths = NULL;
+	}
+
+	// Free title
+	if (internal->title) {
+		free(internal->title);
+		internal->title = NULL;
+	}
+
+	internal->freed = true;
+	internal->path_count = 0;
+
+	// Clear the event data
+	ref_result->_internal = NULL;
+	ref_result->title = NULL;
+	ref_result->count = 0;
+}
+
+// ============================================================================
 // Platform-Specific Exports
 // ============================================================================
 

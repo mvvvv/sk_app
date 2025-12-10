@@ -760,8 +760,14 @@ void ska_platform_pump_events(void) {
 
 			[NSApp sendEvent:nsevent];
 		}
+
+		/* Check for file dialog completion */
+		ska_macos_check_file_dialog();
 	}
 }
+
+/* Forward declaration for file dialog check */
+static void ska_macos_check_file_dialog(void);
 
 /////////////////////////////////////////
 // macOS specific subset of Vulkan header
@@ -905,6 +911,186 @@ bool ska_platform_clipboard_set_text(const char* text) {
 
 		return true;
 	}
+}
+
+/* ========== File Dialog ========== */
+
+/* Pending file dialog state */
+typedef struct {
+	ska_file_dialog_id_t     id;
+	char*                    title;
+	bool                     active;
+	bool                     completed;
+	bool                     cancelled;
+	char**                   paths;
+	int32_t                  path_count;
+} ska_macos_file_dialog_t;
+
+static ska_macos_file_dialog_t g_macos_file_dialog = {0};
+
+bool ska_platform_file_dialog_available(ska_file_dialog_ type) {
+	(void)type;
+	return true; /* Always available on macOS */
+}
+
+bool ska_platform_file_dialog_show(ska_file_dialog_id_t id, const ska_file_dialog_request_t* request) {
+	if (g_macos_file_dialog.active) {
+		ska_set_error("File dialog already active");
+		return false;
+	}
+
+	@autoreleasepool {
+		g_macos_file_dialog.id = id;
+		g_macos_file_dialog.title = request->title ? strdup(request->title) : NULL;
+		g_macos_file_dialog.active = true;
+		g_macos_file_dialog.completed = false;
+		g_macos_file_dialog.cancelled = false;
+		g_macos_file_dialog.paths = NULL;
+		g_macos_file_dialog.path_count = 0;
+
+		if (request->type == ska_file_dialog_save) {
+			NSSavePanel* panel = [NSSavePanel savePanel];
+
+			if (request->title) {
+				[panel setTitle:[NSString stringWithUTF8String:request->title]];
+			}
+			if (request->default_name) {
+				[panel setNameFieldStringValue:[NSString stringWithUTF8String:request->default_name]];
+			}
+
+			/* Add file type filters */
+			if (request->filters && request->filter_count > 0) {
+				NSMutableArray* types = [NSMutableArray array];
+				for (int32_t i = 0; i < request->filter_count; i++) {
+					/* Get extensions (space-separated) */
+					const char* exts = ska_filter_get_exts(&request->filters[i]);
+					char* extsCopy = strdup(exts);
+					char* token = strtok(extsCopy, " ");
+					while (token) {
+						/* Remove "*."; keep the extension */
+						const char* ext = token;
+						if (ext[0] == '*' && ext[1] == '.') {
+							ext += 2;
+						} else if (ext[0] == '.') {
+							ext += 1;
+						}
+						if (strlen(ext) > 0 && strcmp(ext, "*") != 0) {
+							[types addObject:[NSString stringWithUTF8String:ext]];
+						}
+						token = strtok(NULL, " ");
+					}
+					free(extsCopy);
+				}
+				if ([types count] > 0) {
+					[panel setAllowedFileTypes:types];
+				}
+			}
+
+			[panel beginWithCompletionHandler:^(NSModalResponse result) {
+				if (result == NSModalResponseOK) {
+					NSURL* url = [panel URL];
+					g_macos_file_dialog.paths = (char**)malloc(sizeof(char*));
+					g_macos_file_dialog.paths[0] = strdup([[url path] UTF8String]);
+					g_macos_file_dialog.path_count = 1;
+					g_macos_file_dialog.cancelled = false;
+				} else {
+					g_macos_file_dialog.cancelled = true;
+				}
+				g_macos_file_dialog.completed = true;
+			}];
+		} else {
+			/* Open file or folder */
+			NSOpenPanel* panel = [NSOpenPanel openPanel];
+
+			if (request->title) {
+				[panel setTitle:[NSString stringWithUTF8String:request->title]];
+			}
+
+			if (request->type == ska_file_dialog_open_folder) {
+				[panel setCanChooseDirectories:YES];
+				[panel setCanChooseFiles:NO];
+			} else {
+				[panel setCanChooseDirectories:NO];
+				[panel setCanChooseFiles:YES];
+				[panel setAllowsMultipleSelection:request->allow_multiple];
+
+				/* Add file type filters */
+				if (request->filters && request->filter_count > 0) {
+					NSMutableArray* types = [NSMutableArray array];
+					for (int32_t i = 0; i < request->filter_count; i++) {
+						/* Get extensions (space-separated) */
+						const char* exts = ska_filter_get_exts(&request->filters[i]);
+						char* extsCopy = strdup(exts);
+						char* token = strtok(extsCopy, " ");
+						while (token) {
+							const char* ext = token;
+							if (ext[0] == '*' && ext[1] == '.') {
+								ext += 2;
+							} else if (ext[0] == '.') {
+								ext += 1;
+							}
+							if (strlen(ext) > 0 && strcmp(ext, "*") != 0) {
+								[types addObject:[NSString stringWithUTF8String:ext]];
+							}
+							token = strtok(NULL, " ");
+						}
+						free(extsCopy);
+					}
+					if ([types count] > 0) {
+						[panel setAllowedFileTypes:types];
+					}
+				}
+			}
+
+			[panel beginWithCompletionHandler:^(NSModalResponse result) {
+				if (result == NSModalResponseOK) {
+					NSArray<NSURL*>* urls = [panel URLs];
+					g_macos_file_dialog.path_count = (int32_t)[urls count];
+					g_macos_file_dialog.paths = (char**)malloc(g_macos_file_dialog.path_count * sizeof(char*));
+					for (int32_t i = 0; i < g_macos_file_dialog.path_count; i++) {
+						g_macos_file_dialog.paths[i] = strdup([[[urls objectAtIndex:i] path] UTF8String]);
+					}
+					g_macos_file_dialog.cancelled = false;
+				} else {
+					g_macos_file_dialog.cancelled = true;
+				}
+				g_macos_file_dialog.completed = true;
+			}];
+		}
+
+		return true;
+	}
+}
+
+/* Called from ska_platform_pump_events to check for dialog completion */
+static void ska_macos_check_file_dialog(void) {
+	if (!g_macos_file_dialog.active || !g_macos_file_dialog.completed) {
+		return;
+	}
+
+	ska_file_dialog_result_t* result = ska_file_dialog_result_alloc(
+		g_macos_file_dialog.id,
+		g_macos_file_dialog.title
+	);
+
+	if (!g_macos_file_dialog.cancelled && g_macos_file_dialog.paths) {
+		for (int32_t i = 0; i < g_macos_file_dialog.path_count; i++) {
+			ska_file_dialog_result_add_path(result, g_macos_file_dialog.paths[i]);
+			free(g_macos_file_dialog.paths[i]);
+		}
+		free(g_macos_file_dialog.paths);
+		g_macos_file_dialog.paths = NULL;
+	}
+
+	/* Cleanup */
+	if (g_macos_file_dialog.title) {
+		free(g_macos_file_dialog.title);
+		g_macos_file_dialog.title = NULL;
+	}
+	g_macos_file_dialog.active = false;
+
+	/* Post result */
+	ska_file_dialog_result_complete(result, g_macos_file_dialog.cancelled);
 }
 
 #endif /* SKA_PLATFORM_MACOS */

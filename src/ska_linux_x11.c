@@ -103,6 +103,9 @@ static ska_window_t* ska_find_window_by_xwindow(Window xwin) {
 	return NULL;
 }
 
+// Forward declaration for file dialog check
+static void ska_linux_check_file_dialog(void);
+
 bool ska_platform_init(void) {
 	// Set locale for X11
 	setlocale(LC_ALL, "");
@@ -927,6 +930,9 @@ void ska_platform_pump_events(void) {
 			}
 		}
 	}
+
+	// Check for file dialog completion
+	ska_linux_check_file_dialog();
 }
 
 /////////////////////////////////////////
@@ -1150,6 +1156,308 @@ bool ska_platform_clipboard_set_text(const char* text) {
 		return false;
 	}
 
+	return true;
+}
+
+// ========== File Dialog ==========
+
+#include <sys/wait.h>
+#include <fcntl.h>
+#include <errno.h>
+
+// Pending file dialog process
+typedef struct {
+	pid_t                    pid;
+	int                      pipe_fd;
+	ska_file_dialog_id_t     id;
+	char*                    title;
+	bool                     active;
+} ska_linux_file_dialog_t;
+
+static ska_linux_file_dialog_t g_linux_file_dialog = {0};
+
+// Check which file dialog tool is available
+typedef enum {
+	SKA_LINUX_DIALOG_NONE = 0,
+	SKA_LINUX_DIALOG_ZENITY,
+	SKA_LINUX_DIALOG_KDIALOG,
+} ska_linux_dialog_tool_;
+
+static ska_linux_dialog_tool_ ska_linux_get_dialog_tool(void) {
+	// Check for zenity first (GTK, most common)
+	if (system("which zenity > /dev/null 2>&1") == 0) {
+		return SKA_LINUX_DIALOG_ZENITY;
+	}
+	// Check for kdialog (KDE)
+	if (system("which kdialog > /dev/null 2>&1") == 0) {
+		return SKA_LINUX_DIALOG_KDIALOG;
+	}
+	return SKA_LINUX_DIALOG_NONE;
+}
+
+bool ska_platform_file_dialog_available(ska_file_dialog_ type) {
+	(void)type; // All types supported if we have a dialog tool
+	return ska_linux_get_dialog_tool() != SKA_LINUX_DIALOG_NONE;
+}
+
+bool ska_platform_file_dialog_show(ska_file_dialog_id_t id, const ska_file_dialog_request_t* request) {
+	if (g_linux_file_dialog.active) {
+		ska_set_error("File dialog already active");
+		return false;
+	}
+
+	ska_linux_dialog_tool_ tool = ska_linux_get_dialog_tool();
+	if (tool == SKA_LINUX_DIALOG_NONE) {
+		ska_set_error("No file dialog tool available (install zenity or kdialog)");
+		return false;
+	}
+
+	// Create pipe for reading result
+	int pipefd[2];
+	if (pipe(pipefd) == -1) {
+		ska_set_error("Failed to create pipe: %s", strerror(errno));
+		return false;
+	}
+
+	pid_t pid = fork();
+	if (pid == -1) {
+		ska_set_error("Failed to fork: %s", strerror(errno));
+		close(pipefd[0]);
+		close(pipefd[1]);
+		return false;
+	}
+
+	if (pid == 0) {
+		// Child process
+		close(pipefd[0]); // Close read end
+		dup2(pipefd[1], STDOUT_FILENO); // Redirect stdout to pipe
+		close(pipefd[1]);
+
+		// Build command arguments
+		if (tool == SKA_LINUX_DIALOG_ZENITY) {
+			char* args[32];
+			int argc = 0;
+			args[argc++] = "zenity";
+
+			switch (request->type) {
+				case ska_file_dialog_open:
+					args[argc++] = "--file-selection";
+					if (request->allow_multiple) {
+						args[argc++] = "--multiple";
+						args[argc++] = "--separator=\n";
+					}
+					break;
+				case ska_file_dialog_save:
+					args[argc++] = "--file-selection";
+					args[argc++] = "--save";
+					args[argc++] = "--confirm-overwrite";
+					break;
+				case ska_file_dialog_open_folder:
+					args[argc++] = "--file-selection";
+					args[argc++] = "--directory";
+					break;
+			}
+
+			if (request->title) {
+				args[argc++] = "--title";
+				args[argc++] = (char*)request->title;
+			}
+
+			if (request->default_name && request->type == ska_file_dialog_save) {
+				args[argc++] = "--filename";
+				args[argc++] = (char*)request->default_name;
+			}
+
+			// Add file filters
+			for (int32_t i = 0; i < request->filter_count && argc < 28; i++) {
+				static char filter_buf[8][256];
+				const char* exts = ska_filter_get_exts(&request->filters[i]);
+				snprintf(filter_buf[i], sizeof(filter_buf[i]), "%s | %s",
+				         request->filters[i].name, exts);
+				args[argc++] = "--file-filter";
+				args[argc++] = filter_buf[i];
+			}
+
+			args[argc] = NULL;
+			execvp("zenity", args);
+		}
+		else if (tool == SKA_LINUX_DIALOG_KDIALOG) {
+			char* args[32];
+			int argc = 0;
+			args[argc++] = "kdialog";
+
+			switch (request->type) {
+				case ska_file_dialog_open:
+					if (request->allow_multiple) {
+						args[argc++] = "--getopenfilename";
+						args[argc++] = ".";
+						args[argc++] = "--multiple";
+						args[argc++] = "--separate-output";
+					} else {
+						args[argc++] = "--getopenfilename";
+						args[argc++] = ".";
+					}
+					break;
+				case ska_file_dialog_save:
+					args[argc++] = "--getsavefilename";
+					args[argc++] = request->default_name ? (char*)request->default_name : ".";
+					break;
+				case ska_file_dialog_open_folder:
+					args[argc++] = "--getexistingdirectory";
+					args[argc++] = ".";
+					break;
+			}
+
+			if (request->title) {
+				args[argc++] = "--title";
+				args[argc++] = (char*)request->title;
+			}
+
+			args[argc] = NULL;
+			execvp("kdialog", args);
+		}
+
+		// If exec fails
+		_exit(1);
+	}
+
+	// Parent process
+	close(pipefd[1]); // Close write end
+
+	// Set pipe to non-blocking
+	int flags = fcntl(pipefd[0], F_GETFL, 0);
+	fcntl(pipefd[0], F_SETFL, flags | O_NONBLOCK);
+
+	g_linux_file_dialog.pid = pid;
+	g_linux_file_dialog.pipe_fd = pipefd[0];
+	g_linux_file_dialog.id = id;
+	g_linux_file_dialog.title = request->title ? strdup(request->title) : NULL;
+	g_linux_file_dialog.active = true;
+
+	return true;
+}
+
+// Called from ska_platform_pump_events to check for dialog completion
+static void ska_linux_check_file_dialog(void) {
+	if (!g_linux_file_dialog.active) return;
+
+	int status;
+	pid_t result = waitpid(g_linux_file_dialog.pid, &status, WNOHANG);
+
+	if (result == 0) {
+		// Still running
+		return;
+	}
+
+	// Process completed or errored
+	ska_file_dialog_result_t* dialog_result = ska_file_dialog_result_alloc(
+		g_linux_file_dialog.id,
+		g_linux_file_dialog.title
+	);
+
+	bool cancelled = true;
+	if (result > 0 && WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+		// Success - read paths from pipe
+		cancelled = false;
+		char buffer[4096];
+		ssize_t total = 0;
+		ssize_t n;
+
+		// Read all available data
+		while ((n = read(g_linux_file_dialog.pipe_fd, buffer + total, sizeof(buffer) - total - 1)) > 0) {
+			total += n;
+			if (total >= (ssize_t)sizeof(buffer) - 1) break;
+		}
+		buffer[total] = '\0';
+
+		// Parse paths (separated by newlines)
+		char* line = buffer;
+		while (*line) {
+			char* end = strchr(line, '\n');
+			if (end) *end = '\0';
+
+			if (*line) { // Skip empty lines
+				ska_file_dialog_result_add_path(dialog_result, line);
+			}
+
+			if (end) {
+				line = end + 1;
+			} else {
+				break;
+			}
+		}
+
+		// If no paths were found, treat as cancelled
+		if (dialog_result->path_count == 0) {
+			cancelled = true;
+		}
+	}
+
+	// Cleanup
+	close(g_linux_file_dialog.pipe_fd);
+	if (g_linux_file_dialog.title) {
+		free(g_linux_file_dialog.title);
+	}
+	g_linux_file_dialog.active = false;
+
+	// Post the result event
+	ska_file_dialog_result_complete(dialog_result, cancelled);
+}
+
+// ========== Window Icon ==========
+
+bool ska_platform_window_set_icon(ska_window_t* ref_window, const uint8_t* pixels, int32_t width, int32_t height) {
+	if (!g_ska.x_display || !ref_window || !ref_window->xwindow) {
+		ska_set_error("ska_platform_window_set_icon: invalid display or window");
+		return false;
+	}
+
+	if (!pixels || width <= 0 || height <= 0) {
+		ska_set_error("ska_platform_window_set_icon: invalid icon data");
+		return false;
+	}
+
+	// _NET_WM_ICON format: array of unsigned long
+	// [width, height, pixel_data...] where pixel data is ARGB packed into unsigned long
+	size_t pixel_count = (size_t)width * (size_t)height;
+	size_t data_size = 2 + pixel_count; // width + height + pixels
+
+	unsigned long* icon_data = (unsigned long*)malloc(data_size * sizeof(unsigned long));
+	if (!icon_data) {
+		ska_set_error("ska_platform_window_set_icon: failed to allocate icon data");
+		return false;
+	}
+
+	icon_data[0] = (unsigned long)width;
+	icon_data[1] = (unsigned long)height;
+
+	// Convert RGBA to ARGB (X11 expects ARGB in native byte order)
+	for (size_t i = 0; i < pixel_count; i++) {
+		uint8_t r = pixels[i * 4 + 0];
+		uint8_t g = pixels[i * 4 + 1];
+		uint8_t b = pixels[i * 4 + 2];
+		uint8_t a = pixels[i * 4 + 3];
+		// Pack as ARGB (alpha in high byte)
+		icon_data[2 + i] = ((unsigned long)a << 24) | ((unsigned long)r << 16) |
+		                   ((unsigned long)g << 8)  | ((unsigned long)b);
+	}
+
+	Atom net_wm_icon = XInternAtom(g_ska.x_display, "_NET_WM_ICON", False);
+
+	XChangeProperty(
+		g_ska.x_display,
+		ref_window->xwindow,
+		net_wm_icon,
+		XA_CARDINAL,
+		32,
+		PropModeReplace,
+		(unsigned char*)icon_data,
+		(int)data_size
+	);
+
+	XFlush(g_ska.x_display);
+
+	free(icon_data);
 	return true;
 }
 

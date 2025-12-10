@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+	<!-- Theme for NativeActivity with window decorations -->
+	<!-- This provides a title bar with window controls (minimize, maximize, close) on desktop environments like Waydroid -->
+	<style name="NativeActivityTheme" parent="android:Theme.Material.Light">
+		<!-- Window background -->
+		<item name="android:windowBackground">@android:color/black</item>
+	</style>
+</resources>

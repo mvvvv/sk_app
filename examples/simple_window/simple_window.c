@@ -4,10 +4,11 @@
 // Demonstrates all sk_app API features including:
 // - Initialization and error handling
 // - Window creation and management
-// - Event handling (keyboard, mouse, window, text)
+// - Event handling (keyboard, mouse, window, text, file dialog)
 // - Input state queries
 // - Text input and virtual keyboard
 // - File I/O utilities
+// - File dialogs (platform native pickers)
 // - Timing functions
 
 #include <sk_app.h>
@@ -138,7 +139,7 @@ int32_t main(int argc, char** argv) {
 		ska_log(ska_log_info, "[FILE] Binary file written successfully");
 
 		// Read binary file
-		size_t read_size = 0;
+		size_t read_size   = 0;
 		void*  read_binary = NULL;
 		if (ska_file_read("ska_test.bin", &read_binary, &read_size)) {
 			ska_log(ska_log_info, "[FILE] Binary file read successfully (%zu bytes)", read_size);
@@ -194,8 +195,19 @@ int32_t main(int argc, char** argv) {
 	ska_log(ska_log_info, "  C         - Toggle cursor visibility");
 	ska_log(ska_log_info, "  V         - Toggle relative mouse mode");
 	ska_log(ska_log_info, "  W         - Warp mouse to center");
+	ska_log(ska_log_info, "  F         - Open file dialog");
+	ska_log(ska_log_info, "  G         - Save file dialog");
 	ska_log(ska_log_info, "  Mouse     - Move and click");
 	ska_log(ska_log_info, "  Wheel     - Scroll\n");
+
+// ========================================================================
+// FILE DIALOG AVAILABILITY CHECK
+// ========================================================================
+
+	ska_log(ska_log_info, "[FILE DIALOG] Availability:");
+	ska_log(ska_log_info, "  Open file:   %s", ska_file_dialog_available(ska_file_dialog_open) ? "yes" : "no");
+	ska_log(ska_log_info, "  Save file:   %s", ska_file_dialog_available(ska_file_dialog_save) ? "yes" : "no");
+	ska_log(ska_log_info, "  Open folder: %s", ska_file_dialog_available(ska_file_dialog_open_folder) ? "yes" : "no");
 
 // ========================================================================
 // MAIN EVENT LOOP
@@ -253,8 +265,8 @@ int32_t main(int argc, char** argv) {
 
 				case ska_event_key_down:
 					if (!event.keyboard.repeat) {
-						ska_log(ska_log_info, "[EVENT] Key down: scancode=%d, modifiers=0x%04X",
-							   event.keyboard.scancode, event.keyboard.modifiers);
+						ska_log(ska_log_info, "[EVENT] Key down: scancode=%d, modifiers=0x%04X (ska_scancode_f=%d)",
+							   event.keyboard.scancode, event.keyboard.modifiers, ska_scancode_f);
 
 						// Handle specific keys
 						switch (event.keyboard.scancode) {
@@ -306,8 +318,7 @@ int32_t main(int argc, char** argv) {
 								{
 									static int32_t title_count = 0;
 									char new_title[64];
-									snprintf(new_title, sizeof(new_title),
-											 "sk_app - Title #%d", ++title_count);
+									snprintf(new_title, sizeof(new_title), "sk_app - Title #%d", ++title_count);
 									ska_window_set_title(window, new_title);
 									ska_log(ska_log_info, "[ACTION] Window title changed to: %s", new_title);
 								}
@@ -323,8 +334,7 @@ int32_t main(int argc, char** argv) {
 								{
 									bool relative = ska_mouse_get_relative_mode();
 									ska_mouse_set_relative_mode(!relative);
-									ska_log(ska_log_info, "[ACTION] Relative mouse mode: %s\n",
-										   !relative ? "enabled" : "disabled");
+									ska_log(ska_log_info, "[ACTION] Relative mouse mode: %s\n", !relative ? "enabled" : "disabled");
 								}
 								break;
 
@@ -339,7 +349,55 @@ int32_t main(int argc, char** argv) {
 							case ska_scancode_w:
 								ska_log(ska_log_info, "[ACTION] Warping mouse to center");
 								ska_window_get_content_size(window, &win_w, &win_h);
-								ska_mouse_warp(window, win_w / 2, win_h / 2);
+								ska_mouse_warp             (window, win_w / 2, win_h / 2);
+								break;
+
+							case ska_scancode_f:
+								{
+									ska_log(ska_log_info, "[ACTION] Opening file dialog...");
+									// Filter format: {name, mime, exts}
+									// mime is used on Android, exts on desktop platforms
+									// Provide both for cross-platform compatibility
+									ska_file_filter_t filters[] = {
+										{ "All Files",  "*/*",     "*" },
+										{ "Images",     "image/*", "*.png *.jpg *.jpeg *.gif *.bmp" },
+										{ "Text Files", "text/*",  "*.txt *.md *.c *.h" },
+									};
+									ska_file_dialog_request_t req = {
+										.type           = ska_file_dialog_open,
+										.title          = "Open File",
+										.filters        = filters,
+										.filter_count   = 3,
+										.allow_multiple = true,
+									};
+									ska_file_dialog_id_t id = ska_file_dialog_show(&req);
+									if (id) { ska_log(ska_log_info,  "[FILE DIALOG] Opened dialog id=%u", id); } 
+									else    { ska_log(ska_log_error, "[FILE DIALOG] Failed: %s", ska_error_get()); }
+								}
+								break;
+
+							case ska_scancode_g:
+								{
+									ska_log(ska_log_info, "[ACTION] Opening save dialog...");
+									ska_file_filter_t filters[] = {
+										{ "Text Files", "text/plain", "*.txt" },
+									};
+									ska_file_dialog_request_t req = {
+										.type           = ska_file_dialog_save,
+										.title          = "Save File",
+										.default_name   = "untitled.txt",
+										.filters        = filters,
+										.filter_count   = 1,
+										.allow_multiple = false,
+									};
+									ska_file_dialog_id_t id = ska_file_dialog_show(&req);
+									if (id) { ska_log(ska_log_info,  "[FILE DIALOG] Opened save dialog id=%u", id); }
+									else    { ska_log(ska_log_error, "[FILE DIALOG] Failed: %s", ska_error_get()); }
+								}
+								break;
+
+							default:
+								ska_log(ska_log_info, "[DEBUG] Unhandled scancode: %d", event.keyboard.scancode);
 								break;
 						}
 					}
@@ -356,7 +414,7 @@ int32_t main(int argc, char** argv) {
 				case ska_event_mouse_motion:
 					if (frame % 120 == 0) {  // Print every 120 frames to reduce spam
 						ska_log(ska_log_info, "[EVENT] Mouse motion: pos=(%d, %d), rel=(%d, %d)",
-							   event.mouse_motion.x, event.mouse_motion.y,
+							   event.mouse_motion.x,    event.mouse_motion.y,
 							   event.mouse_motion.xrel, event.mouse_motion.yrel);
 					}
 					break;
@@ -369,13 +427,27 @@ int32_t main(int argc, char** argv) {
 					break;
 
 				case ska_event_mouse_button_up:
-					ska_log(ska_log_info, "[EVENT] Mouse button up: button=%d\n",
-						   event.mouse_button.button);
+					ska_log(ska_log_info, "[EVENT] Mouse button up: button=%d\n", event.mouse_button.button);
 					break;
 
 				case ska_event_mouse_wheel:
-					ska_log(ska_log_info, "[EVENT] Mouse wheel: delta=(%d, %d)\n",
-						   event.mouse_wheel.x, event.mouse_wheel.y);
+					ska_log(ska_log_info, "[EVENT] Mouse wheel: delta=(%d, %d)\n", event.mouse_wheel.x, event.mouse_wheel.y);
+					break;
+
+				case ska_event_file_dialog:
+					ska_log(ska_log_info, "[EVENT] File dialog result: id=%u, title=\"%s\", cancelled=%s, count=%d",
+						   event.file_dialog.id,
+						   event.file_dialog.title ? event.file_dialog.title : "(null)",
+						   event.file_dialog.cancelled ? "yes" : "no",
+						   event.file_dialog.count);
+					if (!event.file_dialog.cancelled) {
+						for (int32_t i = 0; i < event.file_dialog.count; i++) {
+							const char* path = ska_file_dialog_get_path(&event.file_dialog, i);
+							ska_log(ska_log_info, "[FILE DIALOG]   [%d] %s", i, path ? path : "(null)");
+						}
+					}
+					// Free the result - important to avoid memory leaks!
+					ska_file_dialog_free_result(&event.file_dialog);
 					break;
 
 				default:

@@ -840,6 +840,9 @@ bool ska_platform_set_relative_mouse_mode(bool enabled) {
 	return true;
 }
 
+// Forward declaration for file dialog check
+static void ska_win32_check_file_dialog(void);
+
 void ska_platform_pump_events(void) {
 	MSG msg;
 	while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) {
@@ -852,6 +855,9 @@ void ska_platform_pump_events(void) {
 		TranslateMessage(&msg);
 		DispatchMessageW(&msg);
 	}
+
+	// Check for file dialog completion
+	ska_win32_check_file_dialog();
 }
 
 /////////////////////////////////////////
@@ -1003,6 +1009,256 @@ bool ska_platform_clipboard_set_text(const char* text) {
 	CloseClipboard();
 	ska_free_string(wide_text);
 	return true;
+}
+
+// ========== File Dialog ==========
+
+#include <commdlg.h>
+#include <shlobj.h>
+
+// Helper to convert space-separated extensions to semicolon-separated for Windows
+// e.g. "*.png *.jpg *.gif" -> "*.png;*.jpg;*.gif"
+static char* ska_win32_exts_to_pattern(const char* exts) {
+	if (!exts || !exts[0]) return strdup("*.*");
+
+	size_t len = strlen(exts);
+	char* pattern = (char*)malloc(len + 1);
+	if (!pattern) return strdup("*.*");
+
+	const char* src = exts;
+	char* dst = pattern;
+
+	while (*src) {
+		if (*src == ' ') {
+			*dst++ = ';';
+			// Skip multiple spaces
+			while (*src == ' ') src++;
+		} else {
+			*dst++ = *src++;
+		}
+	}
+	*dst = '\0';
+
+	return pattern;
+}
+
+// Pending file dialog thread state
+typedef struct {
+	HANDLE                   thread;
+	ska_file_dialog_id_t     id;
+	ska_file_dialog_         type;
+	wchar_t*                 title;
+	wchar_t*                 default_name;
+	wchar_t*                 filter;
+	bool                     allow_multiple;
+	volatile bool            active;
+	volatile bool            completed;
+	volatile bool            cancelled;
+	wchar_t                  result_buffer[32768];  // For multi-select
+} ska_win32_file_dialog_t;
+
+static ska_win32_file_dialog_t g_win32_file_dialog = {0};
+
+bool ska_platform_file_dialog_available(ska_file_dialog_ type) {
+	(void)type;
+	return true; // Always available on Windows
+}
+
+static DWORD WINAPI ska_win32_file_dialog_thread(LPVOID param) {
+	(void)param;
+
+	// Initialize COM for this thread
+	CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+
+	bool success = false;
+	g_win32_file_dialog.result_buffer[0] = L'\0';
+
+	if (g_win32_file_dialog.type == ska_file_dialog_open_folder) {
+		// Use SHBrowseForFolder for folder selection
+		BROWSEINFOW bi = {0};
+		bi.lpszTitle = g_win32_file_dialog.title;
+		bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
+
+		LPITEMIDLIST pidl = SHBrowseForFolderW(&bi);
+		if (pidl) {
+			if (SHGetPathFromIDListW(pidl, g_win32_file_dialog.result_buffer)) {
+				success = true;
+			}
+			CoTaskMemFree(pidl);
+		}
+	} else {
+		// Use GetOpenFileName/GetSaveFileName
+		OPENFILENAMEW ofn = {0};
+		ofn.lStructSize = sizeof(ofn);
+		ofn.hwndOwner = NULL;
+		ofn.lpstrFile = g_win32_file_dialog.result_buffer;
+		ofn.nMaxFile = sizeof(g_win32_file_dialog.result_buffer) / sizeof(wchar_t);
+		ofn.lpstrFilter = g_win32_file_dialog.filter;
+		ofn.nFilterIndex = 1;
+		ofn.lpstrTitle = g_win32_file_dialog.title;
+		ofn.lpstrFileTitle = NULL;
+		ofn.nMaxFileTitle = 0;
+		ofn.lpstrInitialDir = NULL;
+
+		if (g_win32_file_dialog.type == ska_file_dialog_save) {
+			ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST;
+			if (g_win32_file_dialog.default_name) {
+				wcscpy(g_win32_file_dialog.result_buffer, g_win32_file_dialog.default_name);
+			}
+			success = GetSaveFileNameW(&ofn) != 0;
+		} else {
+			ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+			if (g_win32_file_dialog.allow_multiple) {
+				ofn.Flags |= OFN_ALLOWMULTISELECT | OFN_EXPLORER;
+			}
+			success = GetOpenFileNameW(&ofn) != 0;
+		}
+	}
+
+	g_win32_file_dialog.cancelled = !success;
+	g_win32_file_dialog.completed = true;
+
+	CoUninitialize();
+	return 0;
+}
+
+bool ska_platform_file_dialog_show(ska_file_dialog_id_t id, const ska_file_dialog_request_t* request) {
+	if (g_win32_file_dialog.active) {
+		ska_set_error("File dialog already active");
+		return false;
+	}
+
+	// Store request data
+	g_win32_file_dialog.id = id;
+	g_win32_file_dialog.type = request->type;
+	g_win32_file_dialog.allow_multiple = request->allow_multiple;
+	g_win32_file_dialog.cancelled = false;
+	g_win32_file_dialog.completed = false;
+	g_win32_file_dialog.result_buffer[0] = L'\0';
+
+	// Convert strings to wide
+	if (g_win32_file_dialog.title) { free(g_win32_file_dialog.title); g_win32_file_dialog.title = NULL; }
+	if (g_win32_file_dialog.default_name) { free(g_win32_file_dialog.default_name); g_win32_file_dialog.default_name = NULL; }
+	if (g_win32_file_dialog.filter) { free(g_win32_file_dialog.filter); g_win32_file_dialog.filter = NULL; }
+
+	if (request->title) {
+		g_win32_file_dialog.title = ska_utf8_to_wide(request->title);
+	}
+	if (request->default_name) {
+		g_win32_file_dialog.default_name = ska_utf8_to_wide(request->default_name);
+	}
+
+	// Build filter string: "Name\0*.ext;*.ext2\0Name2\0*.ext\0\0"
+	if (request->filters && request->filter_count > 0) {
+		// Estimate size needed
+		size_t total_len = 1; // Final null
+		for (int32_t i = 0; i < request->filter_count; i++) {
+			const char* exts = ska_filter_get_exts(&request->filters[i]);
+			total_len += strlen(request->filters[i].name) + 1;
+			total_len += strlen(exts) + 1;
+		}
+
+		wchar_t* filter = (wchar_t*)malloc(total_len * sizeof(wchar_t));
+		if (filter) {
+			wchar_t* p = filter;
+			for (int32_t i = 0; i < request->filter_count; i++) {
+				wchar_t* name = ska_utf8_to_wide(request->filters[i].name);
+				// Get extensions and convert spaces to semicolons for Windows
+				const char* exts = ska_filter_get_exts(&request->filters[i]);
+				char* win_pattern = ska_win32_exts_to_pattern(exts);
+				wchar_t* pattern = ska_utf8_to_wide(win_pattern);
+				free(win_pattern);
+
+				if (name && pattern) {
+					wcscpy(p, name);
+					p += wcslen(name) + 1;
+					wcscpy(p, pattern);
+					p += wcslen(pattern) + 1;
+				}
+				if (name) free(name);
+				if (pattern) free(pattern);
+			}
+			*p = L'\0';
+			g_win32_file_dialog.filter = filter;
+		}
+	}
+
+	// Start thread
+	g_win32_file_dialog.active = true;
+	g_win32_file_dialog.thread = CreateThread(NULL, 0, ska_win32_file_dialog_thread, NULL, 0, NULL);
+	if (!g_win32_file_dialog.thread) {
+		g_win32_file_dialog.active = false;
+		ska_set_error("Failed to create file dialog thread");
+		return false;
+	}
+
+	return true;
+}
+
+// Called from ska_platform_pump_events to check for dialog completion
+static void ska_win32_check_file_dialog(void) {
+	if (!g_win32_file_dialog.active || !g_win32_file_dialog.completed) {
+		return;
+	}
+
+	// Wait for thread to finish
+	WaitForSingleObject(g_win32_file_dialog.thread, INFINITE);
+	CloseHandle(g_win32_file_dialog.thread);
+	g_win32_file_dialog.thread = NULL;
+
+	// Create result
+	char* title_utf8 = g_win32_file_dialog.title ? ska_wide_to_utf8(g_win32_file_dialog.title) : NULL;
+	ska_file_dialog_result_t* result = ska_file_dialog_result_alloc(g_win32_file_dialog.id, title_utf8);
+	if (title_utf8) free(title_utf8);
+
+	if (!g_win32_file_dialog.cancelled && g_win32_file_dialog.result_buffer[0]) {
+		// Parse result buffer
+		// For multi-select with OFN_EXPLORER: "dir\0file1\0file2\0\0"
+		// For single select: "full_path\0"
+		wchar_t* p = g_win32_file_dialog.result_buffer;
+		wchar_t* first = p;
+		p += wcslen(p) + 1;
+
+		if (*p == L'\0') {
+			// Single file selected
+			char* path = ska_wide_to_utf8(first);
+			if (path) {
+				ska_file_dialog_result_add_path(result, path);
+				free(path);
+			}
+		} else {
+			// Multiple files - first entry is directory
+			wchar_t dir[MAX_PATH];
+			wcscpy(dir, first);
+			size_t dir_len = wcslen(dir);
+			if (dir_len > 0 && dir[dir_len - 1] != L'\\') {
+				wcscat(dir, L"\\");
+			}
+
+			while (*p) {
+				wchar_t full_path[MAX_PATH];
+				wcscpy(full_path, dir);
+				wcscat(full_path, p);
+
+				char* path = ska_wide_to_utf8(full_path);
+				if (path) {
+					ska_file_dialog_result_add_path(result, path);
+					free(path);
+				}
+
+				p += wcslen(p) + 1;
+			}
+		}
+	}
+
+	// Cleanup
+	if (g_win32_file_dialog.title) { free(g_win32_file_dialog.title); g_win32_file_dialog.title = NULL; }
+	if (g_win32_file_dialog.default_name) { free(g_win32_file_dialog.default_name); g_win32_file_dialog.default_name = NULL; }
+	if (g_win32_file_dialog.filter) { free(g_win32_file_dialog.filter); g_win32_file_dialog.filter = NULL; }
+	g_win32_file_dialog.active = false;
+
+	// Post result
+	ska_file_dialog_result_complete(result, g_win32_file_dialog.cancelled);
 }
 
 #endif // SKA_PLATFORM_WIN32

@@ -4,8 +4,7 @@
 # add_apk: Create an APK build target from a shared library target
 #
 # Usage:
-#   add_apk(
-#       TARGET <target_name>
+#   add_apk(<target_name>
 #       PACKAGE_NAME <com.example.package>
 #       [APP_NAME <display_name>]
 #       [MIN_SDK <version>]
@@ -19,18 +18,18 @@
 #   <target_name>-apk     - Build the APK
 #   <target_name>-install - Install APK to device via adb
 #   <target_name>-run     - Install and launch the app
-function(add_apk)
-	# Parse arguments
+function(add_apk APK_TARGET)
+	# Parse remaining arguments
 	cmake_parse_arguments(APK
 		""  # Options (boolean flags)
-		"TARGET;PACKAGE_NAME;APP_NAME;MIN_SDK;TARGET_SDK;MANIFEST;RESOURCES;LIB_NAME"  # Single-value args
+		"PACKAGE_NAME;APP_NAME;MIN_SDK;TARGET_SDK;MANIFEST;RESOURCES;LIB_NAME"  # Single-value args
 		""  # Multi-value args
 		${ARGN}
 	)
 
 	# Validate required arguments
 	if(NOT APK_TARGET)
-		message(FATAL_ERROR "add_apk: TARGET argument is required")
+		message(FATAL_ERROR "add_apk: target name is required as first argument")
 	endif()
 	if(NOT APK_PACKAGE_NAME)
 		message(FATAL_ERROR "add_apk: PACKAGE_NAME argument is required")

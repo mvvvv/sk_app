@@ -316,6 +316,50 @@ bool         ska_platform_vk_create_surface         (const ska_window_t* window,
 char* ska_platform_clipboard_get_text(void);
 bool  ska_platform_clipboard_set_text(const char* text);
 
+// ============================================================================
+// File Dialog Internal Structures
+// ============================================================================
+
+#define SKA_MAX_FILE_DIALOGS 8
+#define SKA_MAX_DIALOG_PATHS 64
+
+// Internal storage for file dialog result paths
+typedef struct ska_file_dialog_result_t {
+	ska_file_dialog_id_t id;
+	char*                title;         // Copied from request
+	char**               paths;         // Array of path strings
+	int32_t              path_count;
+	bool                 cancelled;
+	bool                 freed;         // Leak tracking
+} ska_file_dialog_result_t;
+
+// File dialog state (added to g_ska via extern)
+typedef struct ska_file_dialog_state_t {
+	ska_file_dialog_id_t       next_id;
+	ska_file_dialog_result_t   results[SKA_MAX_FILE_DIALOGS];
+	int32_t                    result_count;
+	int32_t                    leaked_count;  // Results delivered but not freed
+} ska_file_dialog_state_t;
+
+extern ska_file_dialog_state_t g_ska_file_dialog;
+
+// Internal file dialog functions
+ska_file_dialog_result_t* ska_file_dialog_result_alloc(ska_file_dialog_id_t id, const char* title);
+void                      ska_file_dialog_result_add_path(ska_file_dialog_result_t* result, const char* path);
+void                      ska_file_dialog_result_complete(ska_file_dialog_result_t* result, bool cancelled);
+
+// File filter helpers - get platform-appropriate pattern from filter
+// Returns exts if available, otherwise translates common MIME types to extensions
+// Returns static string, do not free. Returns "*" if no pattern available.
+const char* ska_filter_get_exts(const ska_file_filter_t* filter);
+
+// Returns mime if available, otherwise "*/*"
+const char* ska_filter_get_mime(const ska_file_filter_t* filter);
+
+// Platform-specific file dialog
+bool ska_platform_file_dialog_available(ska_file_dialog_ type);
+bool ska_platform_file_dialog_show(ska_file_dialog_id_t id, const ska_file_dialog_request_t* request);
+
 // Utility functions
 uint64_t ska_get_time_ns(void);
 

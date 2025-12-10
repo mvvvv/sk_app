@@ -1,10 +1,5 @@
 cmake_minimum_required(VERSION 3.15)
-project(sk_app VERSION 1.0.0 LANGUAGES C)
-
-# C standard
-set(CMAKE_C_STANDARD 11)
-set(CMAKE_C_STANDARD_REQUIRED ON)
-set(CMAKE_C_EXTENSIONS OFF)
+project(sk_app VERSION 1.0.0)
 
 # Options
 option(SKA_BUILD_SHARED   "Build shared library"       OFF)
@@ -40,6 +35,13 @@ if(SKA_BUILD_SHARED)
 else()
 	add_library(sk_app STATIC)
 endif()
+
+# C standard
+set_target_properties(sk_app PROPERTIES
+	C_STANDARD 11
+	C_STANDARD_REQUIRED ON
+	C_EXTENSIONS OFF
+)
 
 # Add common sources
 target_sources(sk_app PRIVATE
@@ -147,6 +149,9 @@ else()
 endif()
 
 message(STATUS "Building for platform: ${SKA_PLATFORM}")
+
+# Include add_skapp() helper function
+include(${CMAKE_CURRENT_SOURCE_DIR}/SkApp.cmake)
 
 ###############################################################################
 # Install rules

@@ -353,6 +353,9 @@ typedef enum ska_event_ {
 	ska_event_mouse_button_down,
 	ska_event_mouse_button_up,
 	ska_event_mouse_wheel,
+
+	// File dialog events
+	ska_event_file_dialog,
 } ska_event_;
 
 // Keyboard scancodes (physical keys)
@@ -505,6 +508,23 @@ typedef struct ska_event_mouse_wheel_t {
 	float             precise_y;
 } ska_event_mouse_wheel_t;
 
+// File dialog types
+typedef uint32_t ska_file_dialog_id_t;
+
+typedef enum ska_file_dialog_ {
+	ska_file_dialog_open,           // Open existing file(s)
+	ska_file_dialog_save,           // Save/create new file
+	ska_file_dialog_open_folder,    // Pick a folder (desktop only, no-op on Android)
+} ska_file_dialog_;
+
+typedef struct ska_event_file_dialog_t {
+	ska_file_dialog_id_t  id;           // Matches ska_file_dialog_show() return value
+	const char*           title;        // Title passed to ska_file_dialog_show()
+	bool                  cancelled;    // true if user cancelled/dismissed the dialog
+	int32_t               count;        // Number of selected paths (0 if cancelled)
+	void*                 _internal;    // Internal data, do not access directly
+} ska_event_file_dialog_t;
+
 // Main event structure
 typedef struct ska_event_t {
 	ska_event_ type;
@@ -516,6 +536,7 @@ typedef struct ska_event_t {
 		ska_event_mouse_motion_t mouse_motion;
 		ska_event_mouse_button_t mouse_button;
 		ska_event_mouse_wheel_t  mouse_wheel;
+		ska_event_file_dialog_t  file_dialog;
 	};
 } ska_event_t;
 
@@ -883,6 +904,73 @@ SKA_API char* ska_clipboard_get_text(void);
 // @param text Text to copy to clipboard (UTF-8), required not NULL
 // @return true on success, false on failure (check ska_error_get())
 SKA_API bool ska_clipboard_set_text(const char* text);
+
+// ============================================================================
+// File Dialog
+// ============================================================================
+
+// File type filter for dialogs.
+// Provide mime, exts, or both. The library translates as needed per platform:
+// - Desktop uses exts (space-separated: "*.png *.jpg"). If only mime given,
+//   common types are auto-translated (image/* -> *.png *.jpg etc.)
+// - Android uses mime (MIME type: "image/*"). If only exts given, uses "*/*".
+typedef struct ska_file_filter_t {
+	const char* name;       // Display name, e.g., "Images", "Text Files"
+	const char* mime;       // MIME type for Android: "image/*", "text/plain", "*/*"
+	const char* exts;       // Space-separated extensions for desktop: "*.png *.jpg *.gif"
+} ska_file_filter_t;
+
+// File dialog request configuration
+typedef struct ska_file_dialog_request_t {
+	ska_file_dialog_          type;           // Dialog type (open, save, folder)
+	const char*               title;          // Dialog title (stored for matching in events)
+	const char*               default_name;   // Suggested filename for save dialogs (can be NULL)
+	const ska_file_filter_t*  filters;        // Array of file filters (can be NULL)
+	int32_t                   filter_count;   // Number of filters
+	bool                      allow_multiple; // Allow selecting multiple files (open only)
+} ska_file_dialog_request_t;
+
+// Check if file dialogs are available on this platform.
+// On desktop platforms, always returns true.
+// On Android, checks if a system file picker Activity is available.
+// Useful for XR headsets or AOSP variants that may lack standard Android features.
+//
+// @param type Dialog type to check availability for
+// @return true if file dialogs of this type are supported, false otherwise
+SKA_API bool ska_file_dialog_available(ska_file_dialog_ type);
+
+// Show a file dialog (async).
+// Returns immediately. Result delivered via ska_event_file_dialog event.
+// The title string is copied internally and available in the result event.
+//
+// Platform behavior:
+// - Linux X11: Uses zenity, kdialog, or xdg-desktop-portal (in order of preference)
+// - Win32: Uses IFileOpenDialog/IFileSaveDialog (Vista+ common item dialogs)
+// - macOS: Uses NSOpenPanel/NSSavePanel
+// - Android: Uses ACTION_OPEN_DOCUMENT/ACTION_CREATE_DOCUMENT intents via SAF
+//
+// @param request Dialog configuration (required, not NULL)
+// @return Non-zero dialog ID on success, 0 on failure (check ska_error_get())
+SKA_API ska_file_dialog_id_t ska_file_dialog_show(const ska_file_dialog_request_t* request);
+
+// Get selected path from file dialog result.
+// On desktop: returns filesystem path (e.g., "/home/user/file.txt", "C:\\Users\\...")
+// On Android: returns content URI (e.g., "content://com.android.providers...")
+// Pointer valid until ska_file_dialog_free_result() is called.
+//
+// @param result Event data from ska_event_file_dialog
+// @param index Path index [0, count)
+// @return Path string (UTF-8), or NULL if index out of range
+SKA_API const char* ska_file_dialog_get_path(const ska_event_file_dialog_t* result, int32_t index);
+
+// Free resources associated with a file dialog result.
+// Must be called after processing the event to release memory.
+// Safe to call multiple times or with zeroed struct.
+// Warning: Logs a warning if a new file dialog result arrives before the previous
+// one was freed (helps catch memory leaks during development).
+//
+// @param ref_result Event data to free
+SKA_API void ska_file_dialog_free_result(ska_event_file_dialog_t* ref_result);
 
 // ============================================================================
 // Utilities

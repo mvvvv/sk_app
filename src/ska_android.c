@@ -861,13 +861,18 @@ bool ska_platform_set_relative_mouse_mode(bool enabled) {
 	return false;
 }
 
+// Forward declaration for file dialog check
+static void ska_android_check_file_dialog(void);
+
 void ska_platform_pump_events(void) {
 	// On Android, events are already being pumped by the android_main() loop
 	// in the main thread. The user's main() runs in a separate thread and
 	// consumes events from the thread-safe event queue.
 	// Calling ALooper_pollOnce() here would fail with "No looper for this thread!"
 	// because the user thread doesn't have a looper attached.
-	(void)0;
+
+	// Check for file dialog completion (requires Java helper for full implementation)
+	ska_android_check_file_dialog();
 }
 
 /////////////////////////////////////////
@@ -1357,6 +1362,317 @@ SKA_API bool ska_asset_read_text(const char* asset_name, char** out_text) {
 	text[file_size] = '\0';
 	*out_text = text;
 	return true;
+}
+
+// ============================================================================
+// File Dialog
+// ============================================================================
+
+// Cached JNI references for file dialog
+static struct {
+	jclass    intent_class;
+	jmethodID intent_init;
+	jmethodID intent_setType;
+	jmethodID intent_addCategory;
+	jmethodID intent_putExtra_bool;
+	jclass    pm_class;
+	jmethodID pm_queryIntentActivities;
+	jmethodID activity_getPackageManager;
+	jmethodID activity_startActivityForResult;
+	bool      initialized;
+} g_file_dialog_jni = {0};
+
+// Pending file dialog state
+typedef struct {
+	ska_file_dialog_id_t id;
+	char*                title;
+	bool                 active;
+} ska_android_file_dialog_t;
+
+static ska_android_file_dialog_t g_android_file_dialog = {0};
+
+static void ska_file_dialog_jni_init(void) {
+	if (g_file_dialog_jni.initialized) return;
+
+	JNIEnv* env = g_jni_cache.env;
+	if (!env) return;
+
+	// Intent class and methods
+	jclass intent_class = (*env)->FindClass(env, "android/content/Intent");
+	g_file_dialog_jni.intent_class = (*env)->NewGlobalRef(env, intent_class);
+	g_file_dialog_jni.intent_init = (*env)->GetMethodID(env, intent_class, "<init>", "(Ljava/lang/String;)V");
+	g_file_dialog_jni.intent_setType = (*env)->GetMethodID(env, intent_class, "setType", "(Ljava/lang/String;)Landroid/content/Intent;");
+	g_file_dialog_jni.intent_addCategory = (*env)->GetMethodID(env, intent_class, "addCategory", "(Ljava/lang/String;)Landroid/content/Intent;");
+	g_file_dialog_jni.intent_putExtra_bool = (*env)->GetMethodID(env, intent_class, "putExtra", "(Ljava/lang/String;Z)Landroid/content/Intent;");
+
+	// PackageManager
+	jclass pm_class = (*env)->FindClass(env, "android/content/pm/PackageManager");
+	g_file_dialog_jni.pm_class = (*env)->NewGlobalRef(env, pm_class);
+	g_file_dialog_jni.pm_queryIntentActivities = (*env)->GetMethodID(env, pm_class, "queryIntentActivities", "(Landroid/content/Intent;I)Ljava/util/List;");
+
+	// Activity methods
+	jclass activity_class = (*env)->FindClass(env, "android/app/Activity");
+	g_file_dialog_jni.activity_getPackageManager = (*env)->GetMethodID(env, activity_class, "getPackageManager", "()Landroid/content/pm/PackageManager;");
+	g_file_dialog_jni.activity_startActivityForResult = (*env)->GetMethodID(env, activity_class, "startActivityForResult", "(Landroid/content/Intent;I)V");
+
+	g_file_dialog_jni.initialized = true;
+}
+
+bool ska_platform_file_dialog_available(ska_file_dialog_ type) {
+	if (!g_ska.android_app || !g_ska.android_app->activity) {
+		return false;
+	}
+
+	ska_file_dialog_jni_init();
+	JNIEnv* env = g_jni_cache.env;
+	if (!env || !g_file_dialog_jni.initialized) {
+		return false;
+	}
+
+	// Create the appropriate intent action string
+	const char* action;
+	switch (type) {
+		case ska_file_dialog_open:
+			action = "android.intent.action.OPEN_DOCUMENT";
+			break;
+		case ska_file_dialog_save:
+			action = "android.intent.action.CREATE_DOCUMENT";
+			break;
+		case ska_file_dialog_open_folder:
+			action = "android.intent.action.OPEN_DOCUMENT_TREE";
+			break;
+		default:
+			return false;
+	}
+
+	// Create Intent
+	jstring action_str = (*env)->NewStringUTF(env, action);
+	jobject intent = (*env)->NewObject(env, g_file_dialog_jni.intent_class, g_file_dialog_jni.intent_init, action_str);
+	(*env)->DeleteLocalRef(env, action_str);
+
+	if (!intent) {
+		return false;
+	}
+
+	// Set type to */* for general query
+	jstring type_str = (*env)->NewStringUTF(env, "*/*");
+	(*env)->CallObjectMethod(env, intent, g_file_dialog_jni.intent_setType, type_str);
+	(*env)->DeleteLocalRef(env, type_str);
+
+	// Add CATEGORY_OPENABLE
+	jstring category_str = (*env)->NewStringUTF(env, "android.intent.category.OPENABLE");
+	(*env)->CallObjectMethod(env, intent, g_file_dialog_jni.intent_addCategory, category_str);
+	(*env)->DeleteLocalRef(env, category_str);
+
+	// Get PackageManager and query
+	jobject activity = g_ska.android_app->activity->clazz;
+	jobject pm = (*env)->CallObjectMethod(env, activity, g_file_dialog_jni.activity_getPackageManager);
+
+	if (!pm) {
+		(*env)->DeleteLocalRef(env, intent);
+		return false;
+	}
+
+	// Query activities that can handle this intent
+	jobject resolve_list = (*env)->CallObjectMethod(env, pm, g_file_dialog_jni.pm_queryIntentActivities, intent, 0);
+
+	bool available = false;
+	if (resolve_list) {
+		// Check if list is not empty
+		jclass list_class = (*env)->FindClass(env, "java/util/List");
+		jmethodID size_method = (*env)->GetMethodID(env, list_class, "size", "()I");
+		int size = (*env)->CallIntMethod(env, resolve_list, size_method);
+		available = (size > 0);
+		(*env)->DeleteLocalRef(env, resolve_list);
+	}
+
+	(*env)->DeleteLocalRef(env, pm);
+	(*env)->DeleteLocalRef(env, intent);
+
+	return available;
+}
+
+bool ska_platform_file_dialog_show(ska_file_dialog_id_t id, const ska_file_dialog_request_t* request) {
+	// Launch file picker using startActivityForResult.
+	// The result is received in SkAppActivity.onActivityResult() which calls
+	// our JNI callback nativeOnFileDialogResult().
+	//
+	// IMPORTANT: This requires the app to use SkAppActivity instead of NativeActivity
+	// in AndroidManifest.xml. See AndroidFileDialog.cmake for setup instructions.
+
+	if (g_android_file_dialog.active) {
+		ska_set_error("File dialog already active");
+		return false;
+	}
+
+	ska_file_dialog_jni_init();
+	JNIEnv* env = g_jni_cache.env;
+	if (!env || !g_file_dialog_jni.initialized) {
+		ska_set_error("JNI not initialized for file dialog");
+		return false;
+	}
+
+	// Determine intent action
+	const char* action;
+	switch (request->type) {
+		case ska_file_dialog_open:
+			action = "android.intent.action.OPEN_DOCUMENT";
+			break;
+		case ska_file_dialog_save:
+			action = "android.intent.action.CREATE_DOCUMENT";
+			break;
+		case ska_file_dialog_open_folder:
+			action = "android.intent.action.OPEN_DOCUMENT_TREE";
+			break;
+		default:
+			ska_set_error("Unknown file dialog type");
+			return false;
+	}
+
+	// Create Intent
+	jstring action_str = (*env)->NewStringUTF(env, action);
+	jobject intent = (*env)->NewObject(env, g_file_dialog_jni.intent_class, g_file_dialog_jni.intent_init, action_str);
+	(*env)->DeleteLocalRef(env, action_str);
+
+	if (!intent) {
+		ska_set_error("Failed to create file picker intent");
+		return false;
+	}
+
+	// Set MIME type
+	const char* mime_type = "*/*";
+	if (request->filters && request->filter_count > 0) {
+		// Use first filter's MIME type
+		mime_type = ska_filter_get_mime(&request->filters[0]);
+	}
+	jstring type_str = (*env)->NewStringUTF(env, mime_type);
+	(*env)->CallObjectMethod(env, intent, g_file_dialog_jni.intent_setType, type_str);
+	(*env)->DeleteLocalRef(env, type_str);
+
+	// Add CATEGORY_OPENABLE for file intents (not folder)
+	if (request->type != ska_file_dialog_open_folder) {
+		jstring category_str = (*env)->NewStringUTF(env, "android.intent.category.OPENABLE");
+		(*env)->CallObjectMethod(env, intent, g_file_dialog_jni.intent_addCategory, category_str);
+		(*env)->DeleteLocalRef(env, category_str);
+	}
+
+	// Allow multiple selection if requested
+	if (request->allow_multiple && request->type == ska_file_dialog_open) {
+		jstring extra_str = (*env)->NewStringUTF(env, "android.intent.extra.ALLOW_MULTIPLE");
+		(*env)->CallObjectMethod(env, intent, g_file_dialog_jni.intent_putExtra_bool, extra_str, JNI_TRUE);
+		(*env)->DeleteLocalRef(env, extra_str);
+	}
+
+	// Allocate result entry (must be done before launching activity so JNI callback can find it)
+	ska_file_dialog_result_t* result = ska_file_dialog_result_alloc(id, request->title);
+	if (!result) {
+		(*env)->DeleteLocalRef(env, intent);
+		ska_set_error("Failed to allocate file dialog result");
+		return false;
+	}
+
+	// Store state
+	g_android_file_dialog.id = id;
+	g_android_file_dialog.title = request->title ? strdup(request->title) : NULL;
+	g_android_file_dialog.active = true;
+
+	// Launch the activity with result
+	// Request code encodes our dialog ID with a marker (0x5B00 prefix)
+	// Lower byte is the dialog ID (0-255), upper byte is the marker
+	int request_code = 0x5B00 | (id & 0xFF);
+
+	jobject activity = g_ska.android_app->activity->clazz;
+	(*env)->CallVoidMethod(env, activity, g_file_dialog_jni.activity_startActivityForResult, intent, request_code);
+	(*env)->DeleteLocalRef(env, intent);
+
+	// Check for exception
+	if ((*env)->ExceptionCheck(env)) {
+		(*env)->ExceptionClear(env);
+		g_android_file_dialog.active = false;
+		if (g_android_file_dialog.title) {
+			free(g_android_file_dialog.title);
+			g_android_file_dialog.title = NULL;
+		}
+		ska_set_error("Failed to start file picker activity");
+		return false;
+	}
+
+	ska_log(ska_log_info, "File dialog launched (id=%u)", id);
+
+	return true;
+}
+
+// Called from ska_platform_pump_events - currently a no-op
+// Full implementation requires Java callback to set result
+static void ska_android_check_file_dialog(void) {
+	// Without Java helper, we can't receive activity results
+	// If dialog is active for too long without result, assume it was cancelled
+	// (This is a workaround - proper implementation needs Java integration)
+}
+
+// ============================================================================
+// JNI Callback for File Dialog Results (called from SkAppActivity.java)
+// ============================================================================
+
+#include <jni.h>
+
+// JNI function name: Java_net_stereokit_sk_1app_SkAppActivity_nativeOnFileDialogResult
+// Note: underscore in package name "sk_app" is escaped as "_1" in JNI
+JNIEXPORT void JNICALL
+Java_net_stereokit_sk_1app_SkAppActivity_nativeOnFileDialogResult(
+	JNIEnv* env,
+	jclass clazz,
+	jint dialog_id,
+	jobjectArray uris,
+	jboolean cancelled
+) {
+	(void)clazz;
+
+	ska_log(ska_log_info, "JNI callback: dialog_id=%d, cancelled=%d", dialog_id, cancelled);
+
+	// Find the pending result for this dialog
+	ska_file_dialog_result_t* result = NULL;
+	for (int32_t i = 0; i < g_ska_file_dialog.result_count; i++) {
+		if (g_ska_file_dialog.results[i].id == (ska_file_dialog_id_t)dialog_id) {
+			result = &g_ska_file_dialog.results[i];
+			break;
+		}
+	}
+
+	if (!result) {
+		ska_log(ska_log_warn, "File dialog result for unknown dialog ID %d", dialog_id);
+		return;
+	}
+
+	// Process URIs if not cancelled
+	if (!cancelled && uris != NULL) {
+		jsize uri_count = (*env)->GetArrayLength(env, uris);
+
+		for (jsize i = 0; i < uri_count; i++) {
+			jstring uri_jstr = (jstring)(*env)->GetObjectArrayElement(env, uris, i);
+			if (uri_jstr) {
+				const char* uri_utf = (*env)->GetStringUTFChars(env, uri_jstr, NULL);
+				if (uri_utf) {
+					ska_file_dialog_result_add_path(result, uri_utf);
+					(*env)->ReleaseStringUTFChars(env, uri_jstr, uri_utf);
+				}
+				(*env)->DeleteLocalRef(env, uri_jstr);
+			}
+		}
+	}
+
+	// Mark complete and post event
+	ska_file_dialog_result_complete(result, cancelled);
+
+	// Clear pending state
+	g_android_file_dialog.active = false;
+	if (g_android_file_dialog.title) {
+		free(g_android_file_dialog.title);
+		g_android_file_dialog.title = NULL;
+	}
+
+	ska_log(ska_log_info, "File dialog completed: %d paths, cancelled=%d",
+		result->path_count, result->cancelled);
 }
 
 #endif // SKA_PLATFORM_ANDROID
