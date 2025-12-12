@@ -40,10 +40,7 @@ function(add_skapp SKA_TARGET)
 
 		# 2. Default to sk_app's manifest if not specified
 		if(NOT SKA_MANIFEST)
-			set(SKA_MANIFEST "${CMAKE_SOURCE_DIR}/android/AndroidManifest_SkApp.xml")
-			if(NOT EXISTS "${SKA_MANIFEST}")
-				set(SKA_MANIFEST "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/android/AndroidManifest_SkApp.xml")
-			endif()
+			set(SKA_MANIFEST "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/android/AndroidManifest_SkApp.xml")
 		endif()
 
 		# 3. Build add_apk arguments
@@ -68,11 +65,7 @@ function(add_skapp SKA_TARGET)
 		add_apk(${SKA_TARGET} ${APK_ARGS})
 
 		# 4. Add sk_app Java code (SkAppActivity)
-		set(SK_APP_JAVA_DIR "${CMAKE_SOURCE_DIR}/android/java")
-		if(NOT EXISTS "${SK_APP_JAVA_DIR}")
-			set(SK_APP_JAVA_DIR "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/android/java")
-		endif()
-		apk_add_java_sources(${SKA_TARGET} "${SK_APP_JAVA_DIR}"
+		apk_add_java_sources(${SKA_TARGET} "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/android/java"
 			"net/stereokit/sk_app/SkAppActivity.java"
 		)
 

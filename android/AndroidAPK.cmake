@@ -1,14 +1,137 @@
-# Android APK Build Function for sk_app
-# Provides add_apk() function to build APK files from native libraries
+# Android APK Build for sk_app
+# Provides add_apk() function to build APK files from native libraries.
+# This module is standalone and can be used independently of sk_app.
 #
 # Functions:
 #   add_apk()              - Create APK build target from a shared library
 #   apk_add_java_sources() - Add Java source files to an APK target
 
+###############################################################################
+## Include guard and directory capture
+###############################################################################
+
+if(_ANDROID_APK_INCLUDED)
+	return()
+endif()
+set(_ANDROID_APK_INCLUDED TRUE)
+
 # Capture the directory at include-time for use in functions
 set(_SK_APP_ANDROID_DIR "${CMAKE_CURRENT_LIST_DIR}" CACHE INTERNAL "sk_app android directory")
 
-# apk_add_java_sources: Add Java source files to an APK target
+###############################################################################
+## Find SDK, NDK, and JDK paths
+###############################################################################
+
+# Find the Android SDK
+if(NOT DEFINED ANDROID_SDK_ROOT)
+	if(DEFINED ENV{ANDROID_HOME})
+		set(ANDROID_SDK_ROOT $ENV{ANDROID_HOME})
+	elseif(DEFINED ENV{ANDROID_SDK_ROOT})
+		set(ANDROID_SDK_ROOT $ENV{ANDROID_SDK_ROOT})
+	elseif(DEFINED ANDROID_HOME)
+		set(ANDROID_SDK_ROOT ${ANDROID_HOME})
+	elseif(DEFINED CMAKE_ANDROID_NDK)
+		# NDK is typically at $SDK/ndk/<version>, derive SDK from it
+		get_filename_component(_ndk_parent "${CMAKE_ANDROID_NDK}" DIRECTORY)
+		get_filename_component(_sdk_candidate "${_ndk_parent}" DIRECTORY)
+		if(EXISTS "${_sdk_candidate}/platform-tools")
+			set(ANDROID_SDK_ROOT "${_sdk_candidate}")
+		endif()
+	endif()
+endif()
+if (NOT EXISTS "${ANDROID_SDK_ROOT}/platform-tools")
+	message(FATAL_ERROR "Android SDK not found. Set ANDROID_HOME or ANDROID_SDK_ROOT, or ensure CMAKE_ANDROID_NDK points to an NDK inside the SDK.")
+endif()
+
+# Find a build-tools folder in the Android SDK that matches our CMAKE_SYSTEM_VERSION
+if(ANDROID_BUILD_TOOLS_VERSION AND EXISTS "${ANDROID_SDK_ROOT}/build-tools/${ANDROID_BUILD_TOOLS_VERSION}")
+	set(ANDROID_BUILD_TOOLS_PATH "${ANDROID_SDK_ROOT}/build-tools/${ANDROID_BUILD_TOOLS_VERSION}")
+else()
+	file(GLOB BUILD_TOOLS_VERSIONS LIST_DIRECTORIES true "${ANDROID_SDK_ROOT}/build-tools/*")
+	foreach(VERSION_DIR ${BUILD_TOOLS_VERSIONS})
+		get_filename_component(VERSION_NAME ${VERSION_DIR} NAME)
+		if(VERSION_NAME MATCHES "${CMAKE_SYSTEM_VERSION}\.")
+			set(ANDROID_BUILD_TOOLS_PATH "${VERSION_DIR}")
+			break()
+		endif()
+	endforeach()
+endif()
+if(NOT EXISTS "${ANDROID_BUILD_TOOLS_PATH}")
+	message(STATUS "Can't find build-tools matching ANDROID_BUILD_TOOLS_VERSION ${ANDROID_BUILD_TOOLS_VERSION} or CMAKE_SYSTEM_VERSION ${CMAKE_SYSTEM_VERSION}")
+endif()
+
+# Find JDK bin folder
+if(NOT DEFINED JAVA_HOME)
+	if(DEFINED ENV{JAVA_HOME})
+		set(JAVA_HOME $ENV{JAVA_HOME})
+	endif()
+endif()
+if (DEFINED JAVA_HOME)
+	cmake_path(APPEND JAVA_HOME_BIN ${JAVA_HOME} "bin")
+endif()
+
+message(STATUS "APK build var - ANDROID_SDK_ROOT         : ${ANDROID_SDK_ROOT}")
+message(STATUS "APK build var - CMAKE_ANDROID_NDK        : ${CMAKE_ANDROID_NDK}")
+message(STATUS "APK build var - ANDROID_BUILD_TOOLS_PATH : ${ANDROID_BUILD_TOOLS_PATH}")
+message(STATUS "APK build var - JAVA_HOME_BIN            : ${JAVA_HOME_BIN}")
+message(STATUS "APK build var - CMAKE_ANDROID_ARCH_ABI   : ${CMAKE_ANDROID_ARCH_ABI}")
+message(STATUS "APK build var - CMAKE_SYSTEM_VERSION     : ${CMAKE_SYSTEM_VERSION}")
+
+###############################################################################
+## Build tools
+###############################################################################
+
+set(AAPT2    "${ANDROID_BUILD_TOOLS_PATH}/aapt2" CACHE INTERNAL "Android AAPT2 tool")
+set(AAPT     "${ANDROID_BUILD_TOOLS_PATH}/aapt" CACHE INTERNAL "Android AAPT tool")
+set(ZIPALIGN "${ANDROID_BUILD_TOOLS_PATH}/zipalign" CACHE INTERNAL "Android zipalign tool")
+set(APKSIGN  "${ANDROID_BUILD_TOOLS_PATH}/apksigner" CACHE INTERNAL "Android apksigner tool")
+set(D8       "${ANDROID_BUILD_TOOLS_PATH}/d8" CACHE INTERNAL "Android D8 tool")
+find_program(JAVAC   NAMES javac   REQUIRED PATHS ${JAVA_HOME_BIN})
+find_program(KEYTOOL NAMES keytool REQUIRED PATHS ${JAVA_HOME_BIN})
+
+###############################################################################
+## Keystore for signing APKs (default debug keystore)
+###############################################################################
+
+# Set default keystore variables
+set(DEFAULT_KEYSTORE       "${CMAKE_CURRENT_LIST_DIR}/debug.keystore")
+set(DEFAULT_KEYSTORE_ALIAS "androiddebugkey")
+set(DEFAULT_KEYSTORE_PASS  "android")
+set(DEFAULT_KEY_ALIAS_PASS "android")
+
+# Check if keystore variables are provided, otherwise use defaults
+set(KEYSTORE       "${DEFAULT_KEYSTORE}"       CACHE STRING "Path to the keystore")
+set(KEY_ALIAS      "${DEFAULT_KEYSTORE_ALIAS}" CACHE STRING "Alias for the key")
+set(KEYSTORE_PASS  "${DEFAULT_KEYSTORE_PASS}"  CACHE STRING "Password for the keystore")
+set(KEY_ALIAS_PASS "${DEFAULT_KEY_ALIAS_PASS}" CACHE STRING "Password for the key")
+
+if(NOT EXISTS "${KEYSTORE}")
+	message(STATUS "APK keystore not found, generating new keystore...")
+	execute_process(COMMAND ${KEYTOOL}
+		-genkeypair -v
+		-keyalg RSA -keysize 2048 -validity 10000
+		-keystore "${KEYSTORE}" -alias "${KEY_ALIAS}"
+		-storepass "${KEYSTORE_PASS}" -keypass "${KEY_ALIAS_PASS}"
+		-dname "CN=Android Debug,O=Android,C=US"
+		RESULT_VARIABLE KEYTOOL_RESULT)
+	if(NOT KEYTOOL_RESULT EQUAL "0")
+		message(FATAL_ERROR "Failed to create keystore")
+	endif()
+endif()
+
+message(STATUS "APK using keystore: ${KEYSTORE} with alias ${KEY_ALIAS}")
+
+###############################################################################
+## Version information (used by APKs)
+###############################################################################
+
+set(APK_VERSION_NAME "${CMAKE_PROJECT_VERSION}" CACHE INTERNAL "APK version name")
+math(EXPR APK_VERSION_CODE "${PROJECT_VERSION_MAJOR} * 10000 + ${PROJECT_VERSION_MINOR} * 100 + ${PROJECT_VERSION_PATCH}")
+set(APK_VERSION_CODE "${APK_VERSION_CODE}" CACHE INTERNAL "APK version code")
+
+###############################################################################
+## apk_add_java_sources: Add Java source files to an APK target
+###############################################################################
 #
 # Usage:
 #   apk_add_java_sources(<target_name> <source_dir>
@@ -40,9 +163,9 @@ function(apk_add_java_sources APK_TARGET JAVA_SOURCE_DIR)
 endfunction()
 
 ###############################################################################
-# Internal: Build classes.dex from Empty.class + any registered Java sources
-#
-# Called automatically at the end of directory processing via cmake_language(DEFER).
+## Internal: Build classes.dex from Empty.class + any registered Java sources
+##
+## Called automatically at the end of directory processing via cmake_language(DEFER).
 ###############################################################################
 function(_apk_build_dex APK_TARGET)
 	get_target_property(APK_BUILD_DIR ${APK_TARGET}-apk APK_BUILD_DIR)
@@ -114,7 +237,9 @@ function(_apk_build_dex APK_TARGET)
 	)
 endfunction()
 
-# add_apk: Create an APK build target from a shared library target
+###############################################################################
+## add_apk: Create an APK build target from a shared library target
+###############################################################################
 #
 # Usage:
 #   add_apk(<target_name>

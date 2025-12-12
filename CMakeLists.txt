@@ -107,8 +107,7 @@ elseif(ANDROID)
 	)
 	target_link_libraries(sk_app PRIVATE android log)
 
-	# Include Android build tools and APK function
-	include(${CMAKE_CURRENT_SOURCE_DIR}/android/AndroidTools.cmake)
+	# Include Android APK build function
 	include(${CMAKE_CURRENT_SOURCE_DIR}/android/AndroidAPK.cmake)
 
 elseif(APPLE)
