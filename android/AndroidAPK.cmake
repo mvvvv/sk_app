@@ -165,7 +165,7 @@ function(apk_add_java_sources APK_TARGET JAVA_SOURCE_DIR)
 endfunction()
 
 ###############################################################################
-## Internal: Build classes.dex from Empty.class + any registered Java sources
+## Internal: Build classes.dex from registered Java sources (or Empty.class fallback)
 ##
 ## Called automatically at the end of directory processing via cmake_language(DEFER).
 ###############################################################################
@@ -180,11 +180,10 @@ function(_apk_build_dex APK_TARGET)
 		set(ANDROID_JAR "${ANDROID_SDK_ROOT}/platforms/android-32/android.jar")
 	endif()
 
-	# Always start with Empty.class
-	set(DEX_INPUTS "${APK_BUILD_DIR}/obj/Empty.class")
-	set(DEX_DEPENDS "${APK_BUILD_DIR}/obj/Empty.class")
+	set(DEX_INPUTS "")
+	set(DEX_DEPENDS "")
 
-	# Process additional Java sources if any
+	# Process Java sources if any, otherwise use Empty.class placeholder
 	if(JAVA_SOURCES)
 		set(JAVA_SRC_FILES "")
 		set(JAVA_CLASS_FILES "")
@@ -227,6 +226,10 @@ function(_apk_build_dex APK_TARGET)
 
 		list(APPEND DEX_INPUTS ${JAVA_CLASS_FILES})
 		list(APPEND DEX_DEPENDS ${JAVA_CLASS_FILES})
+	else()
+		# No Java sources provided, use Empty.class placeholder
+		set(DEX_INPUTS "${APK_BUILD_DIR}/obj/Empty.class")
+		set(DEX_DEPENDS "${APK_BUILD_DIR}/obj/Empty.class")
 	endif()
 
 	# Build classes.dex from all inputs
@@ -390,15 +393,18 @@ function(add_apk APK_TARGET)
 ")
 
 	###########################################################################
-	## Compile Empty.java placeholder (DEX built later via _apk_build_dex)
+	## Compile Empty.java placeholder (used only when no other Java sources)
 	###########################################################################
 
-	file(WRITE ${APK_BUILD_DIR}/src/android/Empty.java "public class Empty {}")
+	# Generate and compile Empty.java in a single command to avoid configure-time files
+	set(EMPTY_JAVA_FILE "${APK_BUILD_DIR}/src/android/Empty.java")
+	set(GENERATE_SCRIPT "${_SK_APP_ANDROID_DIR}/generate_empty_java.cmake")
 	add_custom_command(
-		DEPENDS ${APK_BUILD_DIR}/src/android/Empty.java
 		OUTPUT  ${APK_BUILD_DIR}/obj/Empty.class
-		COMMAND ${JAVAC} -d ${APK_BUILD_DIR}/obj -sourcepath src ${APK_BUILD_DIR}/src/android/Empty.java
-		COMMENT "Compiling Empty.java for ${APK_TARGET}"
+		COMMAND ${CMAKE_COMMAND} -DOUTPUT_FILE=${EMPTY_JAVA_FILE} -P ${GENERATE_SCRIPT}
+		COMMAND ${JAVAC} -d ${APK_BUILD_DIR}/obj -sourcepath src ${EMPTY_JAVA_FILE}
+		COMMENT "Compiling Empty.java placeholder for ${APK_TARGET}"
+		VERBATIM
 	)
 
 	###########################################################################
