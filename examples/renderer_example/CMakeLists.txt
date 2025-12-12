@@ -10,8 +10,9 @@ include(FetchContent)
 add_skapp(renderer_example
 	PACKAGE_NAME net.stereokit.renderer_example
 	APP_NAME "Renderer Example"
+	ASSETS ${CMAKE_CURRENT_SOURCE_DIR}/assets
 )
-target_sources(renderer_example PRIVATE 
+target_sources(renderer_example PRIVATE
 	renderer_example.c
 )
 
@@ -40,5 +41,10 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(sk_renderer)
 target_link_libraries(renderer_example PRIVATE sk_renderer)
+
+# Include scene_util and float_math from sk_renderer's example tools
+target_include_directories(renderer_example PRIVATE
+	${sk_renderer_SOURCE_DIR}/example/tools
+)
 
 message(STATUS "Building sk_renderer example")

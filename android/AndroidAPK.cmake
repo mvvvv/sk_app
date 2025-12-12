@@ -251,6 +251,8 @@ endfunction()
 #       [TARGET_SDK <version>]
 #       [MANIFEST <path/to/AndroidManifest.xml>]
 #       [RESOURCES <path/to/resources>]
+#       [ASSETS <path/to/assets>]
+#       [ASSETS_STAMP <path/to/stamp_file>]
 #       [LIB_NAME <native_lib_name>]
 #   )
 #
@@ -265,7 +267,7 @@ function(add_apk APK_TARGET)
 	# Parse remaining arguments
 	cmake_parse_arguments(APK
 		""  # Options (boolean flags)
-		"PACKAGE_NAME;APP_NAME;MIN_SDK;TARGET_SDK;MANIFEST;RESOURCES;LIB_NAME"  # Single-value args
+		"PACKAGE_NAME;APP_NAME;MIN_SDK;TARGET_SDK;MANIFEST;RESOURCES;ASSETS;ASSETS_STAMP;LIB_NAME"  # Single-value args
 		""  # Multi-value args
 		${ARGN}
 	)
@@ -314,10 +316,16 @@ function(add_apk APK_TARGET)
 	if(NOT EXISTS "${APK_RESOURCES}")
 		message(FATAL_ERROR "add_apk: RESOURCES directory not found: ${APK_RESOURCES}")
 	endif()
+	if(APK_ASSETS AND NOT EXISTS "${APK_ASSETS}")
+		message(FATAL_ERROR "add_apk: ASSETS directory not found: ${APK_ASSETS}")
+	endif()
 
 	message(STATUS "Configuring APK: ${APK_TARGET}")
 	message(STATUS "  Package: ${APK_PACKAGE_NAME}")
 	message(STATUS "  Min SDK: ${APK_MIN_SDK}, Target SDK: ${APK_TARGET_SDK}")
+	if(APK_ASSETS)
+		message(STATUS "  Assets: ${APK_ASSETS}")
+	endif()
 
 	###########################################################################
 	## Add Android glue code to target
@@ -419,21 +427,35 @@ function(add_apk APK_TARGET)
 	## Assemble base APK (resources + manifest)
 	###########################################################################
 
+	# Build aapt2 link command with optional assets
+	set(AAPT2_LINK_ARGS
+		-o ${APK_BASE}
+		--manifest ${APK_BUILD_DIR}/obj/AndroidManifest.xml
+		-I ${ANDROID_SDK_ROOT}/platforms/android-${APK_MIN_SDK}/android.jar
+		${APK_BUILD_DIR}/obj/apk_resources_shared.zip
+		${APK_BUILD_DIR}/obj/apk_resources_custom.zip
+	)
+	if(APK_ASSETS)
+		list(APPEND AAPT2_LINK_ARGS -A ${APK_ASSETS})
+	endif()
+
+	# Build dependencies for base APK
+	set(APK_BASE_DEPENDS
+		${APK_BUILD_DIR}/obj/classes.dex
+		${APK_BUILD_DIR}/obj/apk_resources_shared.zip
+		${APK_BUILD_DIR}/obj/apk_resources_custom.zip
+		${APK_BUILD_DIR}/obj/AndroidManifest.xml
+	)
+	if(APK_ASSETS_STAMP)
+		list(APPEND APK_BASE_DEPENDS ${APK_ASSETS_STAMP})
+	endif()
+
 	add_custom_command(
-		DEPENDS
-			${APK_BUILD_DIR}/obj/classes.dex
-			${APK_BUILD_DIR}/obj/apk_resources_shared.zip
-			${APK_BUILD_DIR}/obj/apk_resources_custom.zip
-			${APK_BUILD_DIR}/obj/AndroidManifest.xml
+		DEPENDS ${APK_BASE_DEPENDS}
 		OUTPUT
 			${APK_BASE}
 		COMMAND ${CMAKE_COMMAND} -E rm -f ${APK_BASE}
-		COMMAND ${AAPT2} link
-			-o ${APK_BASE}
-			--manifest ${APK_BUILD_DIR}/obj/AndroidManifest.xml
-			-I ${ANDROID_SDK_ROOT}/platforms/android-${APK_MIN_SDK}/android.jar
-			${APK_BUILD_DIR}/obj/apk_resources_shared.zip
-			${APK_BUILD_DIR}/obj/apk_resources_custom.zip
+		COMMAND ${AAPT2} link ${AAPT2_LINK_ARGS}
 		COMMAND cd ${APK_BUILD_DIR}/obj && ${AAPT} add ${APK_BASE} classes.dex
 		COMMENT "Building base APK for ${APK_TARGET}")
 
@@ -490,6 +512,7 @@ function(add_apk APK_TARGET)
 		APK_PACKAGE_NAME "${APK_PACKAGE_NAME}"
 		APK_BUILD_DIR "${APK_BUILD_DIR}"
 		APK_MIN_SDK "${APK_MIN_SDK}"
+		APK_ASSETS_DIR "${APK_ASSETS}"
 	)
 
 	# Defer DEX build to end of directory processing, allowing apk_add_java_sources()
