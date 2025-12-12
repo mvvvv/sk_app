@@ -5,6 +5,9 @@
 #   add_apk()              - Create APK build target from a shared library
 #   apk_add_java_sources() - Add Java source files to an APK target
 
+# Capture the directory at include-time for use in functions
+set(_SK_APP_ANDROID_DIR "${CMAKE_CURRENT_LIST_DIR}" CACHE INTERNAL "sk_app android directory")
+
 # apk_add_java_sources: Add Java source files to an APK target
 #
 # Usage:
@@ -165,10 +168,10 @@ function(add_apk APK_TARGET)
 		set(APK_TARGET_SDK 33)
 	endif()
 	if(NOT APK_MANIFEST)
-		set(APK_MANIFEST "${CMAKE_SOURCE_DIR}/android/AndroidManifest.xml")
+		set(APK_MANIFEST "${_SK_APP_ANDROID_DIR}/AndroidManifest.xml")
 	endif()
 	if(NOT APK_RESOURCES)
-		set(APK_RESOURCES "${CMAKE_SOURCE_DIR}/android/resources")
+		set(APK_RESOURCES "${_SK_APP_ANDROID_DIR}/resources")
 	endif()
 	if(NOT APK_LIB_NAME)
 		set(APK_LIB_NAME "${APK_TARGET}")
@@ -220,9 +223,9 @@ function(add_apk APK_TARGET)
 	###########################################################################
 
 	set(APK_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/apk_${APK_TARGET}")
-	set(APK_BASE      ${APK_BUILD_DIR}/${APK_TARGET}.1.base.apk)
-	set(APK_UNALIGNED ${APK_BUILD_DIR}/${APK_TARGET}.2.unaligned.apk)
-	set(APK_UNSIGNED  ${APK_BUILD_DIR}/${APK_TARGET}.3.unsigned.apk)
+	set(APK_BASE      ${APK_BUILD_DIR}/${APK_TARGET}.1.base)
+	set(APK_UNALIGNED ${APK_BUILD_DIR}/${APK_TARGET}.2.unaligned)
+	set(APK_UNSIGNED  ${APK_BUILD_DIR}/${APK_TARGET}.3.unsigned)
 	set(OUTPUT_APK    ${CMAKE_CURRENT_BINARY_DIR}/${APK_TARGET}.apk)
 
 	# Make folders

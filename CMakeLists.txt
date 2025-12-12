@@ -108,8 +108,8 @@ elseif(ANDROID)
 	target_link_libraries(sk_app PRIVATE android log)
 
 	# Include Android build tools and APK function
-	include(${CMAKE_SOURCE_DIR}/android/AndroidTools.cmake)
-	include(${CMAKE_SOURCE_DIR}/android/AndroidAPK.cmake)
+	include(${CMAKE_CURRENT_SOURCE_DIR}/android/AndroidTools.cmake)
+	include(${CMAKE_CURRENT_SOURCE_DIR}/android/AndroidAPK.cmake)
 
 elseif(APPLE)
 	set(SKA_PLATFORM "MACOS")

@@ -74,7 +74,7 @@ find_program(KEYTOOL NAMES keytool REQUIRED PATHS ${JAVA_HOME_BIN})
 ###############################################################################
 
 # Set default keystore variables
-set(DEFAULT_KEYSTORE       "${CMAKE_SOURCE_DIR}/android/debug.keystore")
+set(DEFAULT_KEYSTORE       "${CMAKE_CURRENT_LIST_DIR}/debug.keystore")
 set(DEFAULT_KEYSTORE_ALIAS "androiddebugkey")
 set(DEFAULT_KEYSTORE_PASS  "android")
 set(DEFAULT_KEY_ALIAS_PASS "android")
@@ -145,7 +145,7 @@ file(MAKE_DIRECTORY
 
 # Configure AndroidManifest.xml
 configure_file(
-	${CMAKE_SOURCE_DIR}/android/AndroidManifest.xml
+	${CMAKE_CURRENT_LIST_DIR}/AndroidManifest.xml
 	${APK_TEMP}/obj/AndroidManifest.xml
 	@ONLY)
 
@@ -161,9 +161,9 @@ add_custom_command(
 # Build the resources
 add_custom_command(
 	OUTPUT  ${APK_TEMP}/obj/apk_resources.zip
-	DEPENDS ${CMAKE_SOURCE_DIR}/android/resources
+	DEPENDS ${CMAKE_CURRENT_LIST_DIR}/resources
 	COMMAND ${AAPT2} compile
-		--dir ${CMAKE_SOURCE_DIR}/android/resources
+		--dir ${CMAKE_CURRENT_LIST_DIR}/resources
 		-o ${APK_TEMP}/obj/apk_resources.zip
 	COMMENT "Compiling APK resources" )
 
