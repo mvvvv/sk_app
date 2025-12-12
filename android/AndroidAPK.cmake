@@ -381,6 +381,15 @@ function(add_apk APK_TARGET)
 		${APK_BUILD_DIR}/obj/AndroidManifest.xml
 		@ONLY)
 
+	# Extract activity name from configured manifest for run target
+	file(READ ${APK_BUILD_DIR}/obj/AndroidManifest.xml MANIFEST_CONTENT)
+	string(REGEX MATCH "<activity[^>]*android:name=\"([^\"]+)\"" ACTIVITY_MATCH "${MANIFEST_CONTENT}")
+	if(CMAKE_MATCH_1)
+		set(APK_ACTIVITY_NAME "${CMAKE_MATCH_1}")
+	else()
+		set(APK_ACTIVITY_NAME "android.app.NativeActivity")
+	endif()
+
 	# Generate custom strings.xml with the app name
 	file(WRITE ${APK_BUILD_DIR}/resources/values/strings.xml
 "<?xml version=\"1.0\" encoding=\"utf-8\"?>
@@ -503,7 +512,7 @@ function(add_apk APK_TARGET)
 	add_custom_target(${APK_TARGET}-run
 		DEPENDS ${APK_TARGET}-apk
 		COMMAND ${ANDROID_SDK_ROOT}/platform-tools/adb install -r ${OUTPUT_APK}
-		COMMAND ${ANDROID_SDK_ROOT}/platform-tools/adb shell am start -n ${APK_PACKAGE_NAME}/android.app.NativeActivity
+		COMMAND ${ANDROID_SDK_ROOT}/platform-tools/adb shell am start -n ${APK_PACKAGE_NAME}/${APK_ACTIVITY_NAME}
 		COMMENT "Installing and running ${APK_TARGET}.apk")
 
 	# Set target properties for introspection and _apk_build_dex

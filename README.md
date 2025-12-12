@@ -67,8 +67,8 @@ cmake --build build-android -j8
 # Build the APK
 cmake --build build-android --target simple_window-apk
 # Install and run on connected device or simulator
-adb install -r build-android/examples/simple_window.apk
-adb shell am start -n com.example.ska.simple_window/android.app.NativeActivity
+adb install -r build-android/examples/simple_window/simple_window.apk
+adb shell am start -n net.stereokit.simple_window/net.stereokit.sk_app.SkAppActivity
 ```
 
 ```sh
@@ -83,13 +83,13 @@ cmake --build build-androidx86 -j8
 cmake --build build-androidx86 --target simple_window-apk
 # Install and run on connected device or simulator
 adb install -r build-androidx86/examples/simple_window/simple_window.apk
-adb shell am start -n com.example.ska.simple_window/android.app.NativeActivity
+adb shell am start -n net.stereokit.simple_window/net.stereokit.sk_app.SkAppActivity
 ```
 
 ```sh
 # Install and run on connected device or simulator
 adb install -r build-android/examples/simple_window/simple_window.apk
-adb shell am start -n com.example.ska.simple_window/android.app.NativeActivity
+adb shell am start -n net.stereokit.simple_window/net.stereokit.sk_app.SkAppActivity
 ```
 
 #### Filtering Android logcat
@@ -113,5 +113,7 @@ adb logcat -v color --uid `adb shell pm list package -U net.stereokit.simple_win
    C         - Toggle cursor visibility
    V         - Toggle relative mouse mode
    W         - Warp mouse to center
+   F         - Open file dialog
+   G         - Save file dialog
    Mouse     - Move and click
    Wheel     - Scroll
