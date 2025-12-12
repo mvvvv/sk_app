@@ -42,6 +42,8 @@ endif()
 if (NOT EXISTS "${ANDROID_SDK_ROOT}/platform-tools")
 	message(FATAL_ERROR "Android SDK not found. Set ANDROID_HOME or ANDROID_SDK_ROOT, or ensure CMAKE_ANDROID_NDK points to an NDK inside the SDK.")
 endif()
+# Cache SDK root for use in deferred functions
+set(ANDROID_SDK_ROOT "${ANDROID_SDK_ROOT}" CACHE INTERNAL "Android SDK root")
 
 # Find a build-tools folder in the Android SDK that matches our CMAKE_SYSTEM_VERSION
 if(ANDROID_BUILD_TOOLS_VERSION AND EXISTS "${ANDROID_SDK_ROOT}/build-tools/${ANDROID_BUILD_TOOLS_VERSION}")
