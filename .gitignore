@@ -1,4 +1,6 @@
 build*/
 bin/
 .vscode/
+.cache/
 *.keystore
+imgui.ini
