@@ -637,6 +637,20 @@ void ska_platform_shutdown(void) {
 	ska_log(ska_log_info, "Android platform shutdown");
 }
 
+void* ska_android_get_vm(void) {
+	if (g_ska.android_app && g_ska.android_app->activity) {
+		return g_ska.android_app->activity->vm;
+	}
+	return NULL;
+}
+
+void* ska_android_get_activity(void) {
+	if (g_ska.android_app && g_ska.android_app->activity) {
+		return g_ska.android_app->activity->clazz;
+	}
+	return NULL;
+}
+
 bool ska_platform_window_create(
 	ska_window_t* window,
 	const char* title,

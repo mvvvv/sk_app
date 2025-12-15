@@ -733,6 +733,20 @@ SKA_API void* ska_linux_get_wayland_display(void);
 //
 // @param app android_app* from android_native_app_glue (cast to void*)
 SKA_API void ska_android_set_app(void* app);
+
+// Get the JavaVM pointer for JNI operations.
+// Required for attaching/detaching threads and obtaining JNIEnv.
+// Available from the start of main(), before ska_init() is called.
+//
+// @return JavaVM* (cast to void*), or NULL if android_app not set
+SKA_API void* ska_android_get_vm(void);
+
+// Get the NativeActivity jobject for JNI calls.
+// This is the Activity instance that can be used with JNI to call Java methods.
+// Available from the start of main(), before ska_init() is called.
+//
+// @return jobject (cast to void*) for the NativeActivity, or NULL if android_app not set
+SKA_API void* ska_android_get_activity(void);
 #endif
 
 // ============================================================================
