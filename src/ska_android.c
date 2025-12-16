@@ -855,6 +855,49 @@ float ska_platform_get_dpi_scale(const ska_window_t* window) {
 	return 1.0f;
 }
 
+float ska_platform_get_refresh_rate(const ska_window_t* window) {
+	(void)window;
+
+	if (!g_ska.android_app || !g_ska.android_app->activity) {
+		return 0.0f;
+	}
+
+	JNIEnv* env = g_jni_cache.env;
+	if (!env) {
+		return 0.0f;
+	}
+
+	// Get WindowManager: activity.getWindowManager()
+	jclass    activity_class     = (*env)->FindClass  (env, "android/app/NativeActivity");
+	jmethodID get_window_manager = (*env)->GetMethodID(env, activity_class,
+		"getWindowManager", "()Landroid/view/WindowManager;");
+
+	jobject window_manager = (*env)->CallObjectMethod(env, g_ska.android_app->activity->clazz, get_window_manager);
+	if (!window_manager) {
+		return 0.0f;
+	}
+
+	// Get Display: windowManager.getDefaultDisplay()
+	jclass    wm_class            = (*env)->FindClass  (env, "android/view/WindowManager");
+	jmethodID get_default_display = (*env)->GetMethodID(env, wm_class, "getDefaultDisplay", "()Landroid/view/Display;");
+
+	jobject display = (*env)->CallObjectMethod(env, window_manager, get_default_display);
+	(*env)->DeleteLocalRef(env, window_manager);
+	if (!display) {
+		return 0.0f;
+	}
+
+	// Get refresh rate: display.getRefreshRate()
+	jclass    display_class    = (*env)->FindClass  (env, "android/view/Display");
+	jmethodID get_refresh_rate = (*env)->GetMethodID(env, display_class,
+		"getRefreshRate", "()F");
+
+	jfloat rate = (*env)->CallFloatMethod(env, display, get_refresh_rate);
+	(*env)->DeleteLocalRef(env, display);
+
+	return (float)rate;
+}
+
 void ska_platform_warp_mouse(ska_window_t* window, int32_t x, int32_t y) {
 	// Cannot warp cursor on touchscreen
 	(void)window; (void)x; (void)y;

@@ -478,6 +478,21 @@ float ska_platform_get_dpi_scale(const ska_window_t* window) {
 	return 1.0f;
 }
 
+float ska_platform_get_refresh_rate(const ska_window_t* window) {
+	(void)window;
+
+	// Use XRandR to get the current screen refresh rate
+	XRRScreenConfiguration* config = XRRGetScreenInfo(g_ska.x_display, g_ska.x_root);
+	if (!config) {
+		return 0.0f;
+	}
+
+	short rate = XRRConfigCurrentRate(config);
+	XRRFreeScreenConfigInfo(config);
+
+	return (float)rate;
+}
+
 void ska_platform_warp_mouse(ska_window_t* ref_window, int32_t x, int32_t y) {
 	ref_window->mouse_warped = true;
 	XWarpPointer(g_ska.x_display, None, ref_window->xwindow, 0, 0, 0, 0, x, y);

@@ -540,6 +540,49 @@ float ska_platform_get_dpi_scale(const ska_window_t* window) {
 	}
 }
 
+float ska_platform_get_refresh_rate(const ska_window_t* window) {
+	@autoreleasepool {
+		NSScreen* screen = nil;
+
+		if (window && window->ns_window) {
+			NSWindow* nswindow = (NSWindow*)window->ns_window;
+			screen = [nswindow screen];
+		}
+
+		if (!screen) {
+			screen = [NSScreen mainScreen];
+		}
+
+		if (!screen) {
+			return 0.0f;
+		}
+
+		/* Get the CGDirectDisplayID from the screen */
+		NSDictionary* description = [screen deviceDescription];
+		NSNumber* screenNumber = [description objectForKey:@"NSScreenNumber"];
+		if (!screenNumber) {
+			return 0.0f;
+		}
+
+		CGDirectDisplayID displayID = [screenNumber unsignedIntValue];
+		CGDisplayModeRef mode = CGDisplayCopyDisplayMode(displayID);
+		if (!mode) {
+			return 0.0f;
+		}
+
+		double rate = CGDisplayModeGetRefreshRate(mode);
+		CGDisplayModeRelease(mode);
+
+		/* Some displays (especially built-in) may report 0 for refresh rate.
+		 * In that case, fall back to a reasonable default. */
+		if (rate <= 0.0) {
+			return 60.0f;
+		}
+
+		return (float)rate;
+	}
+}
+
 void ska_platform_warp_mouse(ska_window_t* window, int32_t x, int32_t y) {
 	@autoreleasepool {
 		NSWindow* nswindow = (NSWindow*)window->ns_window;

@@ -314,6 +314,10 @@ SKA_API float ska_window_get_dpi_scale(const ska_window_t* window) {
 	return ska_platform_get_dpi_scale(window);
 }
 
+SKA_API float ska_window_get_refresh_rate(const ska_window_t* window) {
+	return ska_platform_get_refresh_rate(window);
+}
+
 SKA_API void ska_window_show(ska_window_t* ref_window) {
 	if (!ref_window) return;
 	ska_platform_window_show(ref_window);

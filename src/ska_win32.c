@@ -783,6 +783,40 @@ float ska_platform_get_dpi_scale(const ska_window_t* window) {
 	return 1.0f;
 }
 
+float ska_platform_get_refresh_rate(const ska_window_t* window) {
+	// Get the monitor containing the window
+	HMONITOR monitor = NULL;
+	if (window && window->hwnd) {
+		monitor = MonitorFromWindow(window->hwnd, MONITOR_DEFAULTTONEAREST);
+	} else {
+		// Fallback to primary monitor
+		POINT pt = {0, 0};
+		monitor = MonitorFromPoint(pt, MONITOR_DEFAULTTOPRIMARY);
+	}
+
+	if (!monitor) {
+		return 0.0f;
+	}
+
+	// Get monitor info to retrieve the device name
+	MONITORINFOEXA mi;
+	mi.cbSize = sizeof(mi);
+	if (!GetMonitorInfoA(monitor, (MONITORINFO*)&mi)) {
+		return 0.0f;
+	}
+
+	// Query display settings for this specific monitor
+	DEVMODEA dm;
+	dm.dmSize = sizeof(dm);
+	dm.dmDriverExtra = 0;
+	if (!EnumDisplaySettingsA(mi.szDevice, ENUM_CURRENT_SETTINGS, &dm)) {
+		return 0.0f;
+	}
+
+	// dmDisplayFrequency is in Hz
+	return (float)dm.dmDisplayFrequency;
+}
+
 void ska_platform_warp_mouse(ska_window_t* window, int32_t x, int32_t y) {
 	POINT pt = { x, y };
 	ClientToScreen(window->hwnd, &pt);
