@@ -291,6 +291,7 @@ void ska_platform_window_restore(ska_window_t* ref_window);
 void ska_platform_window_raise(ska_window_t* ref_window);
 void ska_platform_window_get_drawable_size(ska_window_t* ref_window, int32_t* opt_out_width, int32_t* opt_out_height);
 float ska_platform_get_dpi_scale(const ska_window_t* window);
+float ska_platform_get_refresh_rate(const ska_window_t* window);
 
 // Platform-specific frame extents (title bar, borders)
 // Returns the size of window decorations: left, right, top (title bar), bottom

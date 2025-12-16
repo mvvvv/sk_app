@@ -268,6 +268,21 @@ SKA_API void ska_window_get_drawable_size(ska_window_t* ref_window, int32_t* opt
 // @return DPI scale factor (1.0 = 100% scale, 1.5 = 150%, etc.), returns 1.0 on error
 SKA_API float ska_window_get_dpi_scale(const ska_window_t* window);
 
+// Get the refresh rate of the monitor displaying the window.
+// Returns the refresh rate in Hz (e.g., 60.0, 144.0, 59.94).
+// On multi-monitor setups, returns the rate of the monitor where the window
+// is primarily displayed.
+//
+// Platform notes:
+// - Linux/X11: Uses XRandR to query the current CRTC refresh rate
+// - Win32: Uses EnumDisplaySettings on the monitor containing the window
+// - macOS: Uses CGDisplayModeGetRefreshRate on the window's screen
+// - Android: Uses JNI to call Display.getRefreshRate()
+//
+// @param window Window handle
+// @return Refresh rate in Hz, or 0.0f if unavailable
+SKA_API float ska_window_get_refresh_rate(const ska_window_t* window);
+
 // Show window.
 // Maps the window to the display. Generates ska_event_window_shown.
 //

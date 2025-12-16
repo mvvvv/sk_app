@@ -104,6 +104,7 @@ int32_t main(int argc, char** argv) {
 	ska_log(ska_log_info, "[WINDOW] Size:          %dx%d",  win_w,  win_h);
 	ska_log(ska_log_info, "[WINDOW] Drawable size: %dx%d",  draw_w, draw_h);
 	ska_log(ska_log_info, "[WINDOW] DPI scale:     %.2f",   ska_window_get_dpi_scale(window));
+	ska_log(ska_log_info, "[WINDOW] Refresh rate:  %.2f Hz", ska_window_get_refresh_rate(window));
 	ska_log(ska_log_info, "[WINDOW] Flags:         0x%08X", flags);
 
 // ========================================================================
