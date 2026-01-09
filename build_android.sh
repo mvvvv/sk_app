@@ -79,7 +79,7 @@ if [ -f "$BUILD_DIR/examples/simple_window/simple_window.apk" ]; then
 	echo ""
 	echo "To install and run:"
 	echo "  adb install -r $BUILD_DIR/examples/simple_window/simple_window.apk"
-	echo "  adb shell am start -n com.example.ska.simple_window/android.app.NativeActivity"
+	echo "  adb shell am start -n net.stereokit.simple_window/net.stereokit.sk_app.SkAppActivity"
 	echo ""
 	echo "Or use the convenience target:"
 	echo "  cmake --build $BUILD_DIR --target simple_window-run"

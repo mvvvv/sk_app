@@ -117,6 +117,7 @@ function(add_skapp SKA_TARGET)
 			PACKAGE_NAME ${SKA_PACKAGE_NAME}
 			APP_NAME "${SKA_APP_NAME}"
 			MANIFEST ${SKA_MANIFEST}
+			ACTIVITY "net.stereokit.sk_app.SkAppActivity"
 			ASSETS ${SKA_ASSETS_DIR}
 			ASSETS_STAMP ${SKA_ASSETS_STAMP}
 		)

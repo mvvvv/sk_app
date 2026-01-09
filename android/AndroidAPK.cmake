@@ -257,6 +257,7 @@ endfunction()
 #       [ASSETS <path/to/assets>]
 #       [ASSETS_STAMP <path/to/stamp_file>]
 #       [LIB_NAME <native_lib_name>]
+#       [ACTIVITY <fully.qualified.ActivityName>]
 #   )
 #
 # Creates targets:
@@ -270,7 +271,7 @@ function(add_apk APK_TARGET)
 	# Parse remaining arguments
 	cmake_parse_arguments(APK
 		""  # Options (boolean flags)
-		"PACKAGE_NAME;APP_NAME;MIN_SDK;TARGET_SDK;MANIFEST;RESOURCES;ASSETS;ASSETS_STAMP;LIB_NAME"  # Single-value args
+		"PACKAGE_NAME;APP_NAME;MIN_SDK;TARGET_SDK;MANIFEST;RESOURCES;ASSETS;ASSETS_STAMP;LIB_NAME;ACTIVITY"  # Single-value args
 		""  # Multi-value args
 		${ARGN}
 	)
@@ -310,6 +311,9 @@ function(add_apk APK_TARGET)
 	endif()
 	if(NOT APK_APP_NAME)
 		set(APK_APP_NAME "${APK_TARGET}")
+	endif()
+	if(NOT APK_ACTIVITY)
+		set(APK_ACTIVITY "android.app.NativeActivity")
 	endif()
 
 	# Validate paths exist
@@ -509,7 +513,7 @@ function(add_apk APK_TARGET)
 	add_custom_target(${APK_TARGET}-run
 		DEPENDS ${APK_TARGET}-apk
 		COMMAND ${ANDROID_SDK_ROOT}/platform-tools/adb install -r ${OUTPUT_APK}
-		COMMAND ${ANDROID_SDK_ROOT}/platform-tools/adb shell am start -n ${APK_PACKAGE_NAME}/android.app.NativeActivity
+		COMMAND ${ANDROID_SDK_ROOT}/platform-tools/adb shell am start -n ${APK_PACKAGE_NAME}/${APK_ACTIVITY}
 		COMMENT "Installing and running ${APK_TARGET}.apk")
 
 	# Set target properties for introspection and _apk_build_dex
