@@ -23,7 +23,6 @@ static ska_scancode_ ska_android_scancode_table[256];
 // Classes must be converted to global references to survive across JNI calls.
 
 static struct {
-	JNIEnv*     env;  // Cached for user thread (attached at init, detached at shutdown)
 	// NativeActivity -> Window
 	jmethodID   activity_getWindow;
 	// Window methods
@@ -40,11 +39,34 @@ static struct {
 	jfieldID    lp_height;
 } g_jni_cache = {0};
 
-static void ska_jni_cache_init(void) {
-	JavaVM* jvm = g_ska.android_app->activity->vm;
-	(*jvm)->AttachCurrentThread(jvm, &g_jni_cache.env, NULL);
+// Get JNIEnv for the current thread, attaching if necessary.
+// Both android_main and user threads are long-lived, so we attach once and
+// leave attached for the thread's lifetime.
+static JNIEnv* ska_jni_get_env(void) {
+	if (!g_ska.android_app || !g_ska.android_app->activity) {
+		return NULL;
+	}
 
-	JNIEnv* env = g_jni_cache.env;
+	JavaVM* jvm = g_ska.android_app->activity->vm;
+	JNIEnv* env = NULL;
+
+	// GetEnv returns JNI_OK if already attached, JNI_EDETACHED otherwise
+	jint result = (*jvm)->GetEnv(jvm, (void**)&env, JNI_VERSION_1_6);
+
+	if (result == JNI_EDETACHED) {
+		if ((*jvm)->AttachCurrentThread(jvm, &env, NULL) != JNI_OK) {
+			return NULL;
+		}
+	}
+
+	return env;
+}
+
+static void ska_jni_cache_init(void) {
+	JNIEnv* env = ska_jni_get_env();
+	if (!env) {
+		return;
+	}
 
 	// NativeActivity.getWindow()
 	jclass activity_class = (*env)->FindClass(env, "android/app/NativeActivity");
@@ -70,20 +92,27 @@ static void ska_jni_cache_init(void) {
 }
 
 static void ska_jni_cache_shutdown(void) {
-	if (g_jni_cache.env) {
+	// Detach current thread if attached (user thread calls this during shutdown)
+	if (g_ska.android_app && g_ska.android_app->activity) {
 		JavaVM* jvm = g_ska.android_app->activity->vm;
-		(*jvm)->DetachCurrentThread(jvm);
+		JNIEnv* env = NULL;
+		if ((*jvm)->GetEnv(jvm, (void**)&env, JNI_VERSION_1_6) == JNI_OK) {
+			(*jvm)->DetachCurrentThread(jvm);
+		}
 	}
 	memset(&g_jni_cache, 0, sizeof(g_jni_cache));
 }
 
 // Helper to get window position via JNI (for freeform/DEX mode)
 static void ska_android_get_window_position(ska_window_t* window) {
-	if (!g_jni_cache.env || !window) {
+	if (!window) {
 		return;
 	}
 
-	JNIEnv* env = g_jni_cache.env;
+	JNIEnv* env = ska_jni_get_env();
+	if (!env) {
+		return;
+	}
 
 	jobject jwindow = (*env)->CallObjectMethod(env, g_ska.android_app->activity->clazz, g_jni_cache.activity_getWindow);
 
@@ -704,11 +733,10 @@ void ska_platform_window_set_title(ska_window_t* window, const char* title) {
 
 void ska_platform_window_set_frame_position(ska_window_t* window, int32_t x, int32_t y) {
 	// In freeform/DEX mode, we can change window position via WindowManager.LayoutParams
-	if (!g_jni_cache.env) {
+	JNIEnv* env = ska_jni_get_env();
+	if (!env) {
 		return;
 	}
-
-	JNIEnv* env = g_jni_cache.env;
 
 	jobject jwindow = (*env)->CallObjectMethod(env, g_ska.android_app->activity->clazz, g_jni_cache.activity_getWindow);
 
@@ -734,11 +762,10 @@ void ska_platform_window_set_frame_size(ska_window_t* window, int32_t w, int32_t
 	// In freeform/DEX mode, we can change window size via WindowManager.LayoutParams
 	(void)window; // Size change reflected via APP_CMD_WINDOW_RESIZED callback
 
-	if (!g_jni_cache.env) {
+	JNIEnv* env = ska_jni_get_env();
+	if (!env) {
 		return;
 	}
-
-	JNIEnv* env = g_jni_cache.env;
 
 	jobject jwindow = (*env)->CallObjectMethod(env, g_ska.android_app->activity->clazz, g_jni_cache.activity_getWindow);
 
@@ -765,11 +792,14 @@ void ska_platform_get_frame_extents(const ska_window_t* window, int32_t* out_lef
 	if (out_top)    *out_top    = 0;
 	if (out_bottom) *out_bottom = 0;
 
-	if (!g_jni_cache.env || !window || !window->native_window) {
+	if (!window || !window->native_window) {
 		return;
 	}
 
-	JNIEnv* env = g_jni_cache.env;
+	JNIEnv* env = ska_jni_get_env();
+	if (!env) {
+		return;
+	}
 
 	jobject jwindow = (*env)->CallObjectMethod(env, g_ska.android_app->activity->clazz, g_jni_cache.activity_getWindow);
 
@@ -858,11 +888,7 @@ float ska_platform_get_dpi_scale(const ska_window_t* window) {
 float ska_platform_get_refresh_rate(const ska_window_t* window) {
 	(void)window;
 
-	if (!g_ska.android_app || !g_ska.android_app->activity) {
-		return 0.0f;
-	}
-
-	JNIEnv* env = g_jni_cache.env;
+	JNIEnv* env = ska_jni_get_env();
 	if (!env) {
 		return 0.0f;
 	}
@@ -1452,7 +1478,7 @@ static ska_android_file_dialog_t g_android_file_dialog = {0};
 static void ska_file_dialog_jni_init(void) {
 	if (g_file_dialog_jni.initialized) return;
 
-	JNIEnv* env = g_jni_cache.env;
+	JNIEnv* env = ska_jni_get_env();
 	if (!env) return;
 
 	// Intent class and methods
@@ -1482,7 +1508,7 @@ bool ska_platform_file_dialog_available(ska_file_dialog_ type) {
 	}
 
 	ska_file_dialog_jni_init();
-	JNIEnv* env = g_jni_cache.env;
+	JNIEnv* env = ska_jni_get_env();
 	if (!env || !g_file_dialog_jni.initialized) {
 		return false;
 	}
@@ -1564,7 +1590,7 @@ bool ska_platform_file_dialog_show(ska_file_dialog_id_t id, const ska_file_dialo
 	}
 
 	ska_file_dialog_jni_init();
-	JNIEnv* env = g_jni_cache.env;
+	JNIEnv* env = ska_jni_get_env();
 	if (!env || !g_file_dialog_jni.initialized) {
 		ska_set_error("JNI not initialized for file dialog");
 		return false;
